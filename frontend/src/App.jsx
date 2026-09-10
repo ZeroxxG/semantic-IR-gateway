@@ -17,12 +17,9 @@ import HistoryChart from './components/HistoryChart';
 
 import { 
   AlertTriangle, 
-  ShieldCheck, 
   CheckCircle2, 
   XCircle,
-  Zap,
-  Layers,
-  Sparkles
+  Layers
 } from 'lucide-react';
 
 export default function App() {
@@ -97,7 +94,7 @@ export default function App() {
       setCostMetrics(result.cost_metrics);
       setFidelityData(result.fidelity);
 
-      showToast(`Compiled SIR! Saved ${result.cost_metrics.token_reduction_pct}% tokens.`, 'success');
+      showToast(`Compiled d-SIR! Saved ${result.cost_metrics.token_reduction_pct}% tokens.`, 'success');
       refreshHistory();
     } catch (error) {
       console.error('Compression failed:', error);
@@ -110,7 +107,7 @@ export default function App() {
   // Handle Downstream Execution
   const handleExecute = async () => {
     if (!sessionId || !sirYaml) {
-      showToast('Please compile a prompt to SIR first.', 'error');
+      showToast('Please compile a prompt to d-SIR first.', 'error');
       return;
     }
 
@@ -158,26 +155,33 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#080b11] text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#0a0d14] text-slate-100 flex flex-col font-sans relative overflow-x-hidden selection:bg-emerald-500/30 selection:text-emerald-200">
       
+      {/* Radial Background Glow Mesh */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-gradient-to-b from-sky-500/10 via-purple-500/5 to-transparent blur-3xl opacity-70" />
+        <div className="absolute top-1/3 -left-40 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-2/3 -right-40 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-3xl" />
+      </div>
+
       {/* Top Header */}
       <Header
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
         selectedEngine={selectedEngine}
         setSelectedEngine={setSelectedEngine}
-        pricingData={pricingData}
         healthData={healthData}
         localMode={localMode}
         setLocalMode={setLocalMode}
+        currentEngineUsed={sessionData?.compression_engine}
       />
 
-      {/* Main Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* Main Workspace (Bento Grid) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 relative z-10">
         
         {/* Toast Alert */}
         {toastMessage && (
-          <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold border backdrop-blur-md transition-all ${
+          <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold border backdrop-blur-xl transition-all ${
             toastMessage.type === 'error'
               ? 'bg-rose-950/90 text-rose-200 border-rose-800'
               : toastMessage.type === 'success'
@@ -191,29 +195,29 @@ export default function App() {
 
         {/* Fidelity Warning Banner */}
         {fidelityData && !fidelityData.passed && (
-          <div className="bg-amber-950/40 border border-amber-500/50 rounded-2xl p-4 flex items-start gap-3 shadow-lg shadow-amber-950/20">
+          <div className="bg-amber-950/40 border border-amber-500/50 rounded-2xl p-4 flex items-start gap-3 shadow-xl backdrop-blur-md">
             <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-amber-300">
+              <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">
                 Semantic Fidelity Warning: {fidelityData.score_pct}% (Threshold: 85%)
               </h4>
               <p className="text-xs text-amber-200/80 mt-0.5">
-                The compiled SIR cosine similarity score is below standard fidelity. Key context details might have been aggressively truncated. Review the SIR specification before dispatching to downstream models.
+                The compiled d-SIR cosine similarity is lower than standard fidelity. Key constraints might need manual review before dispatching.
               </p>
             </div>
           </div>
         )}
 
-        {/* KPI Metric Cards */}
+        {/* Bento Row 1: KPI Metric Cards */}
         <MetricCards
           sessionData={sessionData}
           costMetrics={costMetrics}
           fidelityData={fidelityData}
         />
 
-        {/* Dual Pane Prompt & SIR Workspace */}
+        {/* Bento Row 2: Dual Pane Prompt & d-SIR Workspace */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[460px]">
           
           {/* Left: Raw Prompt Editor */}
@@ -225,7 +229,7 @@ export default function App() {
             estimatedTokens={estimatedTokens}
           />
 
-          {/* Right: Compiled SIR Viewer */}
+          {/* Right: Compiled d-SIR Viewer */}
           <SIRViewer
             sirYaml={sirYaml}
             setSirYaml={setSirYaml}
@@ -239,20 +243,20 @@ export default function App() {
 
         </div>
 
-        {/* Execution Output Panel */}
+        {/* Bento Row 3: Execution Output Panel */}
         <ExecutePanel
           executionData={executionData}
           isExecuting={isExecuting}
           targetModel={selectedModel}
         />
 
-        {/* Enterprise Scale Simulator */}
+        {/* Bento Row 4: Enterprise Scale Financial Simulator */}
         <ScaleSimulator
-          tokensSavedPerReq={costMetrics?.tokens_saved || 120}
-          tokenReductionPct={reductionPct || 65}
+          tokensSavedPerReq={costMetrics?.tokens_saved || 115}
+          tokenReductionPct={reductionPct || 69.3}
         />
 
-        {/* Optimization History & Token Charts */}
+        {/* Bento Row 5: Optimization History & Token Analytics Chart */}
         <HistoryChart
           historyData={historyData}
           onRefresh={refreshHistory}
@@ -262,14 +266,14 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 bg-[#080b11] py-5 mt-12 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-900/80 bg-[#0a0d14]/90 py-5 mt-12 text-center text-xs text-slate-500 relative z-10 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-sky-400" />
-            <span className="font-semibold text-slate-400">Semantic Intermediate Representation (SIR) Gateway</span>
+            <span className="font-semibold text-slate-400 font-mono">Semantic Intermediate Representation (d-SIR)</span>
           </div>
-          <div>
-            Built for production LLM Context & Cost Optimization • Zero-Cost Cloud & Local Fallback
+          <div className="font-mono text-[11px]">
+            Zero-Cost Cloud Tier & Resilient Offline Fallback
           </div>
         </div>
       </footer>
