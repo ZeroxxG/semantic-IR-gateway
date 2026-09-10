@@ -199,30 +199,40 @@ class SystemHealthView(APIView):
     Returns backend status, available engines and API key availability.
     """
     def get(self, request):
-        has_gemini = bool(os.getenv("GEMINI_API_KEY", "").strip())
-        has_groq = bool(os.getenv("GROQ_API_KEY", "").strip())
+        from .services.compressor import get_api_keys
+        gemini_key, groq_key = get_api_keys()
+        
+        has_gemini = bool(gemini_key and gemini_key not in ["your-gemini-api-key-here", "your_gemini_api_key_here"])
+        has_groq = bool(groq_key and groq_key not in ["your_groq_api_key_here"])
         ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
         # Test Ollama reachability quickly
         ollama_available = False
         try:
             import requests
-            r = requests.get(f"{ollama_host}/api/tags", timeout=0.8)
+            r = requests.get(f"{ollama_host}/api/tags", timeout=0.5)
             ollama_available = (r.status_code == 200)
         except Exception:
             ollama_available = False
 
+        active_cloud_engine = None
+        if has_gemini:
+            active_cloud_engine = "Gemini Flash (Cloud Active)"
+        elif has_groq:
+            active_cloud_engine = "Groq Cloud (Active)"
+
         return Response({
             "status": "online",
+            "active_cloud_engine": active_cloud_engine,
             "engines": {
                 "gemini": {
                     "configured": has_gemini,
                     "default_primary": True,
-                    "model": "gemini-1.5-flash"
+                    "model": "gemini-flash-lite-latest"
                 },
                 "groq": {
                     "configured": has_groq,
-                    "model": "llama-3.3-70b-versatile"
+                    "model": "openai/gpt-oss-20b"
                 },
                 "ollama": {
                     "configured": ollama_available,
