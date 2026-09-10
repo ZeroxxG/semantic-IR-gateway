@@ -5,10 +5,11 @@ import {
   ShieldCheck, 
   AlertTriangle, 
   Clock, 
-  ArrowDownRight
+  ArrowDownRight,
+  CheckCircle
 } from 'lucide-react';
 
-export default function MetricCards({ sessionData, costMetrics, fidelityData }) {
+export default function MetricCards({ sessionData, costMetrics, fidelityData, isPassthrough }) {
   const reductionPct = costMetrics?.token_reduction_pct ?? sessionData?.token_reduction_pct ?? 0;
   const rawTokens = costMetrics?.raw_tokens ?? sessionData?.raw_token_count ?? 0;
   const sirTokens = costMetrics?.sir_tokens ?? sessionData?.sir_token_count ?? 0;
@@ -17,46 +18,62 @@ export default function MetricCards({ sessionData, costMetrics, fidelityData }) 
   const costSavedUsd = costMetrics?.cost_saved_usd ?? sessionData?.cost_log?.cost_saved_usd ?? 0;
   const targetModel = sessionData?.target_model || 'gpt-4o';
 
-  const fidelityScore = fidelityData?.score ?? sessionData?.fidelity_score ?? 0.95;
+  const fidelityScore = fidelityData?.score ?? sessionData?.fidelity_score ?? 1.0;
   const fidelityPct = fidelityData?.score_pct ?? Math.round(fidelityScore * 1000) / 10;
   const fidelityPassed = fidelityData?.passed ?? sessionData?.fidelity_passed ?? true;
 
   const compLatency = sessionData?.compression_latency_ms ?? 0;
   const infLatency = sessionData?.inference_latency_ms;
 
+  const passthroughActive = isPassthrough || sessionData?.status?.includes('PASSTHROUGH');
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       
-      {/* 1. Token Reduction */}
-      <div className="relative overflow-hidden rounded-2xl bg-[#0d121c]/90 border border-slate-800/80 p-5 shadow-xl hover:border-sky-500/40 transition-all group backdrop-blur-xl">
+      {/* 1. Token Reduction / Pass-Through */}
+      <div className={`relative overflow-hidden rounded-2xl bg-[#0d121c]/90 border p-5 shadow-xl transition-all group backdrop-blur-xl ${
+        passthroughActive 
+          ? 'border-sky-500/40 hover:border-sky-500/60' 
+          : 'border-slate-800/80 hover:border-sky-500/40'
+      }`}>
         <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/5 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none group-hover:bg-sky-500/10 transition-all" />
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-            Token Reduction
+            {passthroughActive ? 'Pass-Through Guard' : 'Token Reduction'}
           </span>
           <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
-            <TrendingDown className="w-4 h-4" />
+            {passthroughActive ? <ShieldCheck className="w-4 h-4 text-sky-400" /> : <TrendingDown className="w-4 h-4" />}
           </div>
         </div>
         <div className="mt-3 flex items-baseline gap-2">
           <span className="text-3xl font-extrabold text-sky-400 font-mono tracking-tight">
-            {reductionPct > 0 ? `-${reductionPct.toFixed(1)}%` : '0%'}
+            {passthroughActive ? '0.0%' : (reductionPct > 0 ? `-${reductionPct.toFixed(1)}%` : '0%')}
           </span>
           <span className="text-xs text-slate-400 flex items-center font-mono">
-            <ArrowDownRight className="w-3.5 h-3.5 text-sky-400 mr-0.5" />
-            {tokensSaved} saved
+            {passthroughActive ? (
+              <span className="text-sky-300 font-semibold">Optimal</span>
+            ) : (
+              <>
+                <ArrowDownRight className="w-3.5 h-3.5 text-sky-400 mr-0.5" />
+                {tokensSaved} saved
+              </>
+            )}
           </span>
         </div>
         <div className="mt-3">
           <div className="w-full h-1.5 bg-slate-800/90 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${Math.min(100, Math.max(0, reductionPct))}%` }}
+              className={`h-full rounded-full transition-all duration-700 ease-out ${
+                passthroughActive 
+                  ? 'bg-sky-400 w-full' 
+                  : 'bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400'
+              }`}
+              style={{ width: passthroughActive ? '100%' : `${Math.min(100, Math.max(0, reductionPct))}%` }}
             />
           </div>
           <div className="flex justify-between text-[10px] text-slate-400 mt-1.5 font-mono">
             <span>Raw: {rawTokens}</span>
-            <span>d-SIR: {sirTokens}</span>
+            <span>{passthroughActive ? 'Pass-through: ' + rawTokens : 'd-SIR: ' + sirTokens}</span>
           </div>
         </div>
       </div>
@@ -79,7 +96,7 @@ export default function MetricCards({ sessionData, costMetrics, fidelityData }) 
         </div>
         <div className="mt-3 flex items-center justify-between text-xs text-slate-400 font-mono">
           <span>Tier: {targetModel}</span>
-          <span className="text-emerald-400 font-medium">Direct savings</span>
+          <span className="text-emerald-400 font-medium">{passthroughActive ? 'No inflation' : 'Direct savings'}</span>
         </div>
       </div>
 
@@ -113,7 +130,7 @@ export default function MetricCards({ sessionData, costMetrics, fidelityData }) 
             {fidelityPct}%
           </span>
           <span className="text-xs text-slate-400 font-mono">
-            Cosine Sim
+            {passthroughActive ? 'Original' : 'Cosine Sim'}
           </span>
         </div>
         <div className="mt-3 flex items-center justify-between text-xs font-mono">
@@ -123,7 +140,7 @@ export default function MetricCards({ sessionData, costMetrics, fidelityData }) 
               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
               : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
           }`}>
-            {fidelityPassed ? 'FIDELITY HIGH' : 'WARNING (<85%)'}
+            {passthroughActive ? '100% PRESERVED' : (fidelityPassed ? 'FIDELITY HIGH' : 'WARNING (<85%)')}
           </span>
         </div>
       </div>

@@ -37,6 +37,9 @@ export default function App() {
   const [sessionData, setSessionData] = useState(null);
   const [costMetrics, setCostMetrics] = useState(null);
   const [fidelityData, setFidelityData] = useState(null);
+  const [isPassthrough, setIsPassthrough] = useState(false);
+  const [passthroughStatus, setPassthroughStatus] = useState(null);
+  const [passthroughReason, setPassthroughReason] = useState(null);
 
   // Execution states
   const [executionData, setExecutionData] = useState(null);
@@ -93,8 +96,15 @@ export default function App() {
       setSirYaml(result.session.sir_yaml);
       setCostMetrics(result.cost_metrics);
       setFidelityData(result.fidelity);
+      setIsPassthrough(Boolean(result.is_passthrough || result.session?.status?.includes('PASSTHROUGH')));
+      setPassthroughStatus(result.passthrough_status || result.session?.status);
+      setPassthroughReason(result.passthrough_reason);
 
-      showToast(`Compiled d-SIR! Saved ${result.cost_metrics.token_reduction_pct}% tokens.`, 'success');
+      if (result.is_passthrough) {
+        showToast('Pass-Through Guard active: Prompt is optimal.', 'info');
+      } else {
+        showToast(`Compiled d-SIR! Saved ${result.cost_metrics.token_reduction_pct}% tokens.`, 'success');
+      }
       refreshHistory();
     } catch (error) {
       console.error('Compression failed:', error);
@@ -132,6 +142,9 @@ export default function App() {
     setRawPrompt(s.raw_prompt);
     setSirYaml(s.sir_yaml);
     setSelectedModel(s.target_model);
+    setIsPassthrough(Boolean(s.status?.includes('PASSTHROUGH')));
+    setPassthroughStatus(s.status);
+    setPassthroughReason(s.status?.includes('ALREADY_OPTIMAL') ? 'Prompt is already compact (<60 tokens).' : null);
     setCostMetrics({
       raw_tokens: s.raw_token_count,
       sir_tokens: s.sir_token_count,
@@ -215,6 +228,7 @@ export default function App() {
           sessionData={sessionData}
           costMetrics={costMetrics}
           fidelityData={fidelityData}
+          isPassthrough={isPassthrough}
         />
 
         {/* Bento Row 2: Dual Pane Prompt & d-SIR Workspace */}
@@ -239,6 +253,9 @@ export default function App() {
             onExecute={handleExecute}
             isExecuting={isExecuting}
             sessionId={sessionId}
+            isPassthrough={isPassthrough}
+            passthroughStatus={passthroughStatus}
+            passthroughReason={passthroughReason}
           />
 
         </div>

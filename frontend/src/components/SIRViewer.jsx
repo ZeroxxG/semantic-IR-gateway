@@ -8,7 +8,9 @@ import {
   Zap,
   FileCode,
   Sparkles,
-  ArrowDownRight
+  ArrowDownRight,
+  ShieldCheck,
+  Info
 } from 'lucide-react';
 
 export default function SIRViewer({
@@ -19,7 +21,10 @@ export default function SIRViewer({
   reductionPct,
   onExecute,
   isExecuting,
-  sessionId
+  sessionId,
+  isPassthrough,
+  passthroughStatus,
+  passthroughReason
 }) {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -41,7 +46,7 @@ export default function SIRViewer({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dsir_spec_${sessionId ? sessionId.slice(0, 8) : 'export'}.${isJson ? 'json' : 'yaml'}`;
+    a.download = `payload_${sessionId ? sessionId.slice(0, 8) : 'export'}.${isJson ? 'json' : 'yaml'}`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -51,7 +56,6 @@ export default function SIRViewer({
     if (!sirYaml) return '';
     if (viewFormat === 'json') {
       try {
-        // Simple client-side YAML to JSON lines converter
         const lines = sirYaml.split('\n');
         const jsonObj = {};
         let currentSection = null;
@@ -100,7 +104,7 @@ export default function SIRViewer({
           </div>
           <div>
             <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-              Compiled d-SIR
+              {isPassthrough ? 'Payload (Pass-Through)' : 'Compiled d-SIR'}
               {engineUsed && (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 font-medium">
                   {engineUsed}
@@ -113,13 +117,18 @@ export default function SIRViewer({
         {/* Action Controls & Badges */}
         <div className="flex items-center gap-2">
           
-          {/* Dynamic Token Reduction Pill in Vibrant Emerald Green */}
-          {reductionPct > 0 && (
+          {/* Optimal Pass-Through Badge vs Token Reduction Pill */}
+          {isPassthrough ? (
+            <div className="px-2.5 py-1 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 text-xs font-mono font-extrabold shadow-sm shadow-sky-950/50 flex items-center gap-1.5 animate-pulse">
+              <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+              <span>Optimal (Pass-through)</span>
+            </div>
+          ) : reductionPct > 0 ? (
             <div className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono font-extrabold shadow-sm shadow-emerald-950/50 flex items-center gap-1 animate-pulse">
               <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400" />
               <span>-{reductionPct.toFixed(1)}% Token Reduction</span>
             </div>
-          )}
+          ) : null}
 
           {/* Token Counter Badge */}
           <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-xs font-mono text-emerald-300 border border-slate-800 font-semibold">
@@ -159,7 +168,7 @@ export default function SIRViewer({
                 ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' 
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
-            title="Edit d-SIR"
+            title="Edit Payload"
           >
             <Edit3 className="w-3.5 h-3.5" />
           </button>
@@ -179,12 +188,20 @@ export default function SIRViewer({
             onClick={handleDownload}
             disabled={!sirYaml}
             className="p-1.5 text-slate-400 hover:text-sky-400 hover:bg-sky-500/10 rounded-lg transition-colors border border-transparent hover:border-sky-500/20"
-            title="Download specification"
+            title="Download payload"
           >
             <Download className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {/* Pass-Through Info Banner */}
+      {isPassthrough && (
+        <div className="px-5 py-2.5 bg-sky-950/40 border-b border-sky-500/30 flex items-center gap-2 text-xs text-sky-200 font-mono">
+          <Info className="w-4 h-4 text-sky-400 flex-shrink-0" />
+          <span>{passthroughReason || "Anti-Inflation Guard: Original prompt preserved to prevent token expansion."}</span>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <div className="relative flex-1 p-5 flex flex-col min-h-[260px] overflow-auto bg-[#0a0d14]/70">
@@ -206,10 +223,10 @@ export default function SIRViewer({
               <Sparkles className="w-6 h-6" />
             </div>
             <p className="text-sm font-semibold text-slate-300">
-              No d-SIR Compiled Yet
+              No Payload Generated Yet
             </p>
             <p className="text-xs text-slate-500 mt-1 max-w-sm">
-              Enter your prompt on the left and click "Compile to d-SIR" to generate an ultra-dense representation under 50 tokens.
+              Enter your prompt on the left and click "Compile to d-SIR" to optimize context.
             </p>
           </div>
         )}
@@ -218,7 +235,7 @@ export default function SIRViewer({
       {/* Bottom Action Bar */}
       <div className="p-4 border-t border-slate-800/80 bg-[#111622]/80 flex items-center justify-between">
         <div className="text-xs text-slate-400 font-mono">
-          Ultra-dense d-SIR • 0% conversational fluff
+          {isPassthrough ? 'Direct pass-through • 0% inflation' : 'Ultra-dense d-SIR • 0% conversational fluff'}
         </div>
         <button
           onClick={onExecute}
