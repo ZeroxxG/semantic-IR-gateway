@@ -55,9 +55,16 @@ class CompressPromptView(APIView):
         compression_latency_ms = comp_result['compression_latency_ms']
         raw_tokens = comp_result['raw_tokens']
         sir_tokens = comp_result['sir_tokens']
+        is_passthrough = comp_result.get('is_passthrough', False)
+        passthrough_status = comp_result.get('passthrough_status')
+        passthrough_reason = comp_result.get('passthrough_reason')
 
         # 2. Evaluate Semantic Fidelity Gatekeeper
-        fidelity_score, fidelity_passed = evaluate_fidelity(raw_prompt, sir_yaml)
+        if is_passthrough:
+            fidelity_score = 1.0
+            fidelity_passed = True
+        else:
+            fidelity_score, fidelity_passed = evaluate_fidelity(raw_prompt, sir_yaml)
 
         # 3. Calculate Financial Metrics
         cost_metrics = compute_request_metrics(
@@ -73,6 +80,7 @@ class CompressPromptView(APIView):
         )
 
         # 5. Persist Session & CostLog
+        session_status = passthrough_status or ('compressed' if not is_passthrough else 'passthrough')
         session = CompressionSession.objects.create(
             raw_prompt=raw_prompt,
             sir_yaml=sir_yaml,
@@ -85,7 +93,7 @@ class CompressPromptView(APIView):
             fidelity_passed=fidelity_passed,
             compression_latency_ms=compression_latency_ms,
             compression_engine=engine_used,
-            status='compressed'
+            status=session_status
         )
 
         CostLog.objects.create(
@@ -104,6 +112,9 @@ class CompressPromptView(APIView):
             "session": session_serializer.data,
             "cost_metrics": cost_metrics,
             "projections": projections,
+            "is_passthrough": is_passthrough,
+            "passthrough_status": passthrough_status,
+            "passthrough_reason": passthrough_reason,
             "fidelity": {
                 "score": fidelity_score,
                 "score_pct": round(fidelity_score * 100.0, 1),

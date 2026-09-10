@@ -312,13 +312,31 @@ def compile_prompt_to_sir(
     requested_engine: str = "auto"
 ) -> Dict[str, Any]:
     """
-    Main compression dispatcher.
+    Main compression dispatcher with Anti-Inflation & Pass-Through Guard.
     Priority:
-    1. Groq Cloud (Ultra-Fast 70B/27B Cloud)
-    2. Gemini Flash (Google AI Studio)
-    3. Ollama (Local)
-    4. Heuristic d-SIR Distiller (Offline Fallback)
+    1. Pre-check: If raw_tokens < 60 -> PASSTHROUGH_ALREADY_OPTIMAL
+    2. Groq Cloud (Ultra-Fast 70B/27B Cloud)
+    3. Gemini Flash (Google AI Studio)
+    4. Ollama (Local)
+    5. Heuristic d-SIR Distiller (Offline Fallback)
+    6. Post-check: If sir_tokens >= raw_tokens -> PASSTHROUGH_NEGATIVE_SAVINGS
     """
+    raw_tokens = count_tokens(raw_prompt)
+
+    # 1. Pre-check: Prompt is already minimal (< 60 tokens)
+    if raw_tokens < 60:
+        return {
+            "sir_yaml": raw_prompt,
+            "engine_used": "Pass-Through Guard",
+            "compression_latency_ms": 0.5,
+            "raw_tokens": raw_tokens,
+            "sir_tokens": raw_tokens,
+            "is_passthrough": True,
+            "passthrough_status": "PASSTHROUGH_ALREADY_OPTIMAL",
+            "status": "PASSTHROUGH_ALREADY_OPTIMAL",
+            "passthrough_reason": f"Prompt is already compact ({raw_tokens} tokens < 60 limit). Pass-through preserved original text."
+        }
+
     engine_used = "Offline Distiller"
     sir_yaml = None
     latency_ms = 0.0
@@ -371,8 +389,21 @@ def compile_prompt_to_sir(
                     sir_yaml, latency_ms = _heuristic_distillation(raw_prompt)
                     engine_used = "Offline Fallback"
 
-    raw_tokens = count_tokens(raw_prompt)
     sir_tokens = count_tokens(sir_yaml)
+
+    # 2. Post-check: If sir_tokens >= raw_tokens, abort YAML conversion and retain original
+    if sir_tokens >= raw_tokens:
+        return {
+            "sir_yaml": raw_prompt,
+            "engine_used": "Anti-Inflation Guard",
+            "compression_latency_ms": round(latency_ms, 2),
+            "raw_tokens": raw_tokens,
+            "sir_tokens": raw_tokens,
+            "is_passthrough": True,
+            "passthrough_status": "PASSTHROUGH_NEGATIVE_SAVINGS",
+            "status": "PASSTHROUGH_NEGATIVE_SAVINGS",
+            "passthrough_reason": f"Compiled representation ({sir_tokens} tokens) >= raw prompt ({raw_tokens} tokens). Pass-through activated to prevent inflation."
+        }
 
     return {
         "sir_yaml": sir_yaml,
@@ -380,6 +411,10 @@ def compile_prompt_to_sir(
         "compression_latency_ms": round(latency_ms, 2),
         "raw_tokens": raw_tokens,
         "sir_tokens": sir_tokens,
+        "is_passthrough": False,
+        "passthrough_status": None,
+        "status": "compressed",
+        "passthrough_reason": None,
     }
 
 
@@ -389,17 +424,22 @@ def execute_sir_on_llm(
 ) -> Dict[str, Any]:
     """
     Downstream Execution Proxy:
-    Dispatches the compiled d-SIR specification to Groq Cloud / Gemini frontier proxies.
+    Dispatches the compiled d-SIR specification (or pass-through prompt) to Groq Cloud / Gemini frontier proxies.
     """
     start_time = time.time()
-    execution_prompt = (
-        f"You are executing an engineering task specified in dense Semantic Intermediate Representation (d-SIR) YAML.\n"
-        f"Follow all goal signatures and specifications precisely.\n\n"
-        f"--- d-SIR SPECIFICATION ---\n"
-        f"{sir_yaml}\n"
-        f"--- END SPECIFICATION ---\n\n"
-        f"Produce the implementation now:"
-    )
+    
+    # Check if payload is d-SIR YAML or raw pass-through prompt
+    if sir_yaml.strip().startswith('goal:') or 'spec:' in sir_yaml:
+        execution_prompt = (
+            f"You are executing an engineering task specified in dense Semantic Intermediate Representation (d-SIR) YAML.\n"
+            f"Follow all goal signatures and specifications precisely.\n\n"
+            f"--- d-SIR SPECIFICATION ---\n"
+            f"{sir_yaml}\n"
+            f"--- END SPECIFICATION ---\n\n"
+            f"Produce the implementation now:"
+        )
+    else:
+        execution_prompt = sir_yaml
 
     gemini_key, groq_key = get_api_keys()
 

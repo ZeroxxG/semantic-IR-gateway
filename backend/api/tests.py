@@ -124,3 +124,18 @@ class APIRestEndpointsTests(TestCase):
         self.assertEqual(res_exec.status_code, status.HTTP_200_OK)
         self.assertIn('llm_response', res_exec.data)
         self.assertIn('inference_latency_ms', res_exec.data)
+
+    def test_passthrough_guard_pre_check(self):
+        # Short prompt (< 60 tokens)
+        short_prompt = "Hello, write factorial in python"
+        payload = {
+            "raw_prompt": short_prompt,
+            "target_model": "gpt-4o"
+        }
+        res = self.client.post('/api/compress/', payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(res.data.get('is_passthrough'))
+        self.assertEqual(res.data.get('passthrough_status'), 'PASSTHROUGH_ALREADY_OPTIMAL')
+        self.assertEqual(res.data['session']['sir_yaml'], short_prompt)
+        self.assertEqual(res.data['cost_metrics']['token_reduction_pct'], 0.0)
+        self.assertEqual(res.data['fidelity']['score'], 1.0)
