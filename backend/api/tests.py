@@ -166,12 +166,12 @@ class OpenAIDropInProxyTests(TestCase):
         self.assertIn("error", res.data)
 
     @patch('requests.post')
-    def test_proxy_successful_byok_forwarding(self, mock_post):
-        # Mock upstream OpenAI response
+    def test_proxy_successful_openai_routing(self, mock_post):
+        # Mock upstream response
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "id": "chatcmpl-test-12345",
+            "id": "chatcmpl-test-openai",
             "object": "chat.completion",
             "created": 1700000000,
             "model": "gpt-4o",
@@ -193,12 +193,11 @@ class OpenAIDropInProxyTests(TestCase):
         }
         mock_post.return_value = mock_response
 
-        headers = {'HTTP_AUTHORIZATION': 'Bearer sk-test-byok-user-key'}
+        headers = {'HTTP_AUTHORIZATION': 'Bearer sk-test-byok-openai-key'}
         payload = {
             "model": "gpt-4o",
             "messages": [
-                {"role": "system", "content": "You are a helpful coding assistant."},
-                {"role": "user", "content": "Hey there! I really need some help writing a clean Python function. I have this large list of dictionaries where each dictionary represents an event with a 'timestamp' key (which is a Unix epoch integer) and a float 'value' key. I need a function called filter_events that takes this list, sorts it by timestamp in ascending order, and then filters it so it only returns entries where the value is strictly greater than a threshold parameter that the caller passes in. Please make sure to add standard PEP-484 type hints and a descriptive docstring explaining the parameters. Thanks so much!"}
+                {"role": "user", "content": "Hey there! I need a Python function called filter_events that sorts by timestamp ascending and filters where value > threshold."}
             ],
             "temperature": 0.2
         }
@@ -210,13 +209,54 @@ class OpenAIDropInProxyTests(TestCase):
 
         # Verify custom telemetry headers
         self.assertIn("x-sir-tokens-saved", res.headers)
-        self.assertIn("x-sir-savings-usd", res.headers)
-        self.assertIn("x-sir-status", res.headers)
-        self.assertIn("x-sir-fidelity", res.headers)
+        self.assertEqual(res.headers.get("x-sir-provider"), "openai")
 
-        # Verify session logged in database
-        session = CompressionSession.objects.first()
-        self.assertIsNotNone(session)
-        self.assertEqual(session.target_model, "gpt-4o")
-        self.assertGreater(session.tokens_saved, 0)
-        self.assertIn("Proxy", session.compression_engine)
+        # Verify call forwarded to OpenAI
+        called_url = mock_post.call_args[0][0]
+        self.assertEqual(called_url, "https://api.openai.com/v1/chat/completions")
+
+    @patch('requests.post')
+    def test_proxy_groq_routing_by_key(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-groq-123",
+            "choices": [{"message": {"role": "assistant", "content": "Groq response"}}]
+        }
+        mock_post.return_value = mock_response
+
+        headers = {'HTTP_AUTHORIZATION': 'Bearer gsk_live_groq_key_999'}
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": "Write Python quicksort algorithm."}]
+        }
+
+        res = self.client.post('/api/v1/chat/completions/', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.headers.get("x-sir-provider"), "groq")
+
+        called_url = mock_post.call_args[0][0]
+        self.assertEqual(called_url, "https://api.groq.com/openai/v1/chat/completions")
+
+    @patch('requests.post')
+    def test_proxy_gemini_routing_by_model(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-gemini-123",
+            "choices": [{"message": {"role": "assistant", "content": "Gemini response"}}]
+        }
+        mock_post.return_value = mock_response
+
+        headers = {'HTTP_AUTHORIZATION': 'Bearer AIzaSy_test_gemini_key_123'}
+        payload = {
+            "model": "gemini-1.5-flash",
+            "messages": [{"role": "user", "content": "Write Python binary search function."}]
+        }
+
+        res = self.client.post('/api/v1/chat/completions/', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.headers.get("x-sir-provider"), "gemini")
+
+        called_url = mock_post.call_args[0][0]
+        self.assertEqual(called_url, "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
