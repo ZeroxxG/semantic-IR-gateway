@@ -2,6 +2,7 @@
 Compression & Distillation Pipeline
 Compiles raw verbose LLM prompts into dense Semantic Intermediate Representation (d-SIR) YAML.
 Supports Groq Cloud & Gemini Flash with resilient model discovery and ultra-dense offline distillation fallback.
+Enforces Anti-Inflation Pre-check, Negative Overhead Net, and Fidelity Safety Net.
 """
 
 import os
@@ -14,6 +15,8 @@ import requests
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 from dotenv import load_dotenv
+
+from .fidelity import evaluate_fidelity
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +49,6 @@ def count_tokens(text: str) -> int:
             return len(encoder.encode(text))
         except Exception:
             pass
-    words = len(text.split())
     chars = len(text)
     return max(1, int(chars / 3.8))
 
@@ -312,28 +314,27 @@ def compile_prompt_to_sir(
     requested_engine: str = "auto"
 ) -> Dict[str, Any]:
     """
-    Main compression dispatcher with Anti-Inflation & Pass-Through Guard.
-    Priority:
-    1. Pre-check: If raw_tokens < 60 -> PASSTHROUGH_ALREADY_OPTIMAL
-    2. Groq Cloud (Ultra-Fast 70B/27B Cloud)
-    3. Gemini Flash (Google AI Studio)
-    4. Ollama (Local)
-    5. Heuristic d-SIR Distiller (Offline Fallback)
-    6. Post-check: If sir_tokens >= raw_tokens -> PASSTHROUGH_NEGATIVE_SAVINGS
+    Main compression dispatcher with Anti-Inflation Pre-check, Negative Savings Safety Net,
+    and Semantic Fidelity Guard.
     """
     raw_tokens = count_tokens(raw_prompt)
 
-    # 1. Pre-check: Prompt is already minimal (< 60 tokens)
+    # 1. Anti-Inflation Pre-check: If count_tokens(raw_prompt) < 60 -> PASSTHROUGH_OPTIMAL
     if raw_tokens < 60:
         return {
             "sir_yaml": raw_prompt,
+            "sir_text": raw_prompt,
             "engine_used": "Pass-Through Guard",
             "compression_latency_ms": 0.5,
             "raw_tokens": raw_tokens,
             "sir_tokens": raw_tokens,
+            "tokens_saved": 0,
+            "token_reduction_pct": 0.0,
             "is_passthrough": True,
-            "passthrough_status": "PASSTHROUGH_ALREADY_OPTIMAL",
-            "status": "PASSTHROUGH_ALREADY_OPTIMAL",
+            "passthrough_status": "PASSTHROUGH_OPTIMAL",
+            "status": "PASSTHROUGH_OPTIMAL",
+            "fidelity_score": 1.0,
+            "fidelity_passed": True,
             "passthrough_reason": f"Prompt is already compact ({raw_tokens} tokens < 60 limit). Pass-through preserved original text."
         }
 
@@ -342,7 +343,6 @@ def compile_prompt_to_sir(
     latency_ms = 0.0
 
     gemini_key, groq_key = get_api_keys()
-
     req = requested_engine.lower()
 
     if req == "gemini":
@@ -391,29 +391,62 @@ def compile_prompt_to_sir(
 
     sir_tokens = count_tokens(sir_yaml)
 
-    # 2. Post-check: If sir_tokens >= raw_tokens, abort YAML conversion and retain original
+    # 2. Negative Savings Safety Net: If sir_tokens >= raw_tokens -> PASSTHROUGH_NEGATIVE_OVERHEAD
     if sir_tokens >= raw_tokens:
         return {
             "sir_yaml": raw_prompt,
+            "sir_text": raw_prompt,
             "engine_used": "Anti-Inflation Guard",
             "compression_latency_ms": round(latency_ms, 2),
             "raw_tokens": raw_tokens,
             "sir_tokens": raw_tokens,
+            "tokens_saved": 0,
+            "token_reduction_pct": 0.0,
             "is_passthrough": True,
-            "passthrough_status": "PASSTHROUGH_NEGATIVE_SAVINGS",
-            "status": "PASSTHROUGH_NEGATIVE_SAVINGS",
+            "passthrough_status": "PASSTHROUGH_NEGATIVE_OVERHEAD",
+            "status": "PASSTHROUGH_NEGATIVE_OVERHEAD",
+            "fidelity_score": 1.0,
+            "fidelity_passed": True,
             "passthrough_reason": f"Compiled representation ({sir_tokens} tokens) >= raw prompt ({raw_tokens} tokens). Pass-through activated to prevent inflation."
         }
 
+    # 3. Fidelity Safety Net: If cosine similarity < 0.85 -> FALLBACK_FIDELITY_GUARD
+    fidelity_score, fidelity_passed = evaluate_fidelity(raw_prompt, sir_yaml)
+    if not fidelity_passed or fidelity_score < 0.85:
+        return {
+            "sir_yaml": raw_prompt,
+            "sir_text": raw_prompt,
+            "engine_used": "Fidelity Guard",
+            "compression_latency_ms": round(latency_ms, 2),
+            "raw_tokens": raw_tokens,
+            "sir_tokens": raw_tokens,
+            "tokens_saved": 0,
+            "token_reduction_pct": 0.0,
+            "is_passthrough": True,
+            "passthrough_status": "FALLBACK_FIDELITY_GUARD",
+            "status": "FALLBACK_FIDELITY_GUARD",
+            "fidelity_score": fidelity_score,
+            "fidelity_passed": False,
+            "passthrough_reason": f"Semantic fidelity score ({fidelity_score * 100:.1f}%) is below 85% threshold. Reverted to raw prompt for safety."
+        }
+
+    tokens_saved = raw_tokens - sir_tokens
+    token_reduction_pct = round((tokens_saved / raw_tokens) * 100.0, 1)
+
     return {
         "sir_yaml": sir_yaml,
+        "sir_text": sir_yaml,
         "engine_used": engine_used,
         "compression_latency_ms": round(latency_ms, 2),
         "raw_tokens": raw_tokens,
         "sir_tokens": sir_tokens,
+        "tokens_saved": tokens_saved,
+        "token_reduction_pct": token_reduction_pct,
         "is_passthrough": False,
         "passthrough_status": None,
         "status": "compressed",
+        "fidelity_score": fidelity_score,
+        "fidelity_passed": True,
         "passthrough_reason": None,
     }
 

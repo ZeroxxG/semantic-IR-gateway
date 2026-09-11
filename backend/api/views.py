@@ -1,13 +1,18 @@
 """
 Django REST Framework API Views for SIR Gateway
+Includes Phase-4 OpenAI-Compatible Drop-In Proxy with BYOK & Live Telemetry Logging.
 """
 
 import os
+import time
+import json
 import logging
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
+from django.http import JsonResponse, HttpResponse
 
 from .models import CompressionSession, CostLog
 from .serializers import (
@@ -28,11 +33,21 @@ from .services.cost_tracker import (
 logger = logging.getLogger(__name__)
 
 
+def get_client_ip(request) -> str:
+    """Extract client IP from request headers."""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
+    return ip
+
+
 class CompressPromptView(APIView):
     """
     POST /api/compress/
     Takes raw verbose prompt, target model, and engine preference.
-    Compiles to SIR YAML, checks fidelity, computes cost savings, and stores session.
+    Compiles to SIR YAML, enforces anti-inflation & fidelity safety nets, computes cost savings, and stores session.
     """
     def post(self, request):
         serializer = CompressRequestSerializer(data=request.data)
@@ -42,8 +57,9 @@ class CompressPromptView(APIView):
         raw_prompt = serializer.validated_data['raw_prompt']
         target_model = serializer.validated_data.get('target_model', 'gpt-4o')
         compression_engine = serializer.validated_data.get('compression_engine', 'auto')
+        client_ip = get_client_ip(request)
 
-        # 1. Compile prompt to SIR
+        # 1. Compile prompt to SIR with all safety nets
         comp_result = compile_prompt_to_sir(
             raw_prompt=raw_prompt,
             target_model=target_model,
@@ -58,28 +74,25 @@ class CompressPromptView(APIView):
         is_passthrough = comp_result.get('is_passthrough', False)
         passthrough_status = comp_result.get('passthrough_status')
         passthrough_reason = comp_result.get('passthrough_reason')
+        fidelity_score = comp_result.get('fidelity_score', 1.0)
+        fidelity_passed = comp_result.get('fidelity_passed', True)
+        tokens_saved = comp_result.get('tokens_saved', 0)
+        token_reduction_pct = comp_result.get('token_reduction_pct', 0.0)
 
-        # 2. Evaluate Semantic Fidelity Gatekeeper
-        if is_passthrough:
-            fidelity_score = 1.0
-            fidelity_passed = True
-        else:
-            fidelity_score, fidelity_passed = evaluate_fidelity(raw_prompt, sir_yaml)
-
-        # 3. Calculate Financial Metrics
+        # 2. Calculate Financial Metrics
         cost_metrics = compute_request_metrics(
             raw_tokens=raw_tokens,
             sir_tokens=sir_tokens,
             target_model=target_model
         )
 
-        # 4. Compute Enterprise Scale Projections
+        # 3. Compute Enterprise Scale Projections
         projections = project_enterprise_savings(
             cost_saved_per_request=cost_metrics['cost_saved_usd'],
             tokens_saved_per_request=cost_metrics['tokens_saved']
         )
 
-        # 5. Persist Session & CostLog
+        # 4. Persist Session & CostLog
         session_status = passthrough_status or ('compressed' if not is_passthrough else 'passthrough')
         session = CompressionSession.objects.create(
             raw_prompt=raw_prompt,
@@ -93,6 +106,7 @@ class CompressPromptView(APIView):
             fidelity_passed=fidelity_passed,
             compression_latency_ms=compression_latency_ms,
             compression_engine=engine_used,
+            client_ip=client_ip,
             status=session_status
         )
 
@@ -162,6 +176,235 @@ class ExecutePromptView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+class OpenAIChatCompletionsProxyView(APIView):
+    """
+    POST /api/v1/chat/completions/
+    OpenAI-Compatible Drop-In Proxy with BYOK (Bring Your Own Key).
+    1. Extracts client's Authorization header (Bearer sk-...).
+    2. Optimizes incoming user messages to d-SIR via internal compressor.
+    3. Forwards d-SIR payload to upstream OpenAI using the client's API key.
+    4. Logs real-time token savings and telemetry.
+    5. Returns exact upstream JSON with telemetry headers:
+       - x-sir-tokens-saved
+       - x-sir-savings-usd
+       - x-sir-status
+       - x-sir-fidelity
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request, *args, **kwargs):
+        start_time = time.time()
+        client_ip = get_client_ip(request)
+
+        # 1. BYOK Authorization Header Extraction
+        auth_header = request.headers.get("Authorization") or request.META.get("HTTP_AUTHORIZATION")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return Response({
+                "error": {
+                    "message": "You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY).",
+                    "type": "invalid_request_error",
+                    "param": None,
+                    "code": "unauthorized"
+                }
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+        client_api_key = auth_header.replace("Bearer ", "").strip()
+        if not client_api_key:
+            return Response({
+                "error": {
+                    "message": "Empty OpenAI API key provided.",
+                    "type": "invalid_request_error",
+                    "param": None,
+                    "code": "invalid_api_key"
+                }
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Parse Messages & Target Model
+        body_data = request.data if isinstance(request.data, dict) else {}
+        messages = body_data.get("messages", [])
+        target_model = body_data.get("model", "gpt-4o")
+
+        if not messages or not isinstance(messages, list):
+            return Response({
+                "error": {
+                    "message": "'messages' is a required list property and must contain at least one message.",
+                    "type": "invalid_request_error",
+                    "param": "messages",
+                    "code": "invalid_request"
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find last user message
+        target_index = -1
+        raw_prompt = ""
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if msg.get("role") == "user":
+                target_index = i
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    raw_prompt = content
+                elif isinstance(content, list):
+                    # In case of multimodal/multi-part content
+                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                    raw_prompt = " ".join(text_parts) if text_parts else str(content)
+                break
+
+        if not raw_prompt:
+            # Fallback to last message
+            target_index = len(messages) - 1
+            raw_prompt = str(messages[-1].get("content", ""))
+
+        # 3. Compile prompt to d-SIR via internal compressor
+        comp_result = compile_prompt_to_sir(
+            raw_prompt=raw_prompt,
+            target_model=target_model,
+            requested_engine="auto"
+        )
+
+        sir_yaml = comp_result['sir_yaml']
+        engine_used = comp_result['engine_used']
+        comp_latency = comp_result['compression_latency_ms']
+        raw_tokens = comp_result['raw_tokens']
+        sir_tokens = comp_result['sir_tokens']
+        is_passthrough = comp_result.get('is_passthrough', False)
+        passthrough_status = comp_result.get('passthrough_status')
+        fidelity_score = comp_result.get('fidelity_score', 1.0)
+        fidelity_passed = comp_result.get('fidelity_passed', True)
+        tokens_saved = comp_result.get('tokens_saved', 0)
+        token_reduction_pct = comp_result.get('token_reduction_pct', 0.0)
+
+        # 4. Prepare updated payload with verified d-SIR
+        if is_passthrough:
+            optimized_content = raw_prompt
+        else:
+            optimized_content = (
+                f"You are executing an engineering task specified in dense Semantic Intermediate Representation (d-SIR) YAML.\n"
+                f"Follow all goal signatures and specifications precisely.\n\n"
+                f"--- d-SIR SPECIFICATION ---\n"
+                f"{sir_yaml}\n"
+                f"--- END SPECIFICATION ---\n\n"
+                f"Produce the solution now:"
+            )
+
+        updated_messages = list(messages)
+        updated_messages[target_index] = {
+            **updated_messages[target_index],
+            "content": optimized_content
+        }
+
+        forward_payload = {
+            **body_data,
+            "messages": updated_messages,
+            "model": target_model
+        }
+
+        # 5. Forward to Upstream OpenAI
+        upstream_headers = {
+            "Authorization": f"Bearer {client_api_key}",
+            "Content-Type": "application/json"
+        }
+
+        # Forward optional organization/project headers if provided by client
+        if request.headers.get("OpenAI-Organization"):
+            upstream_headers["OpenAI-Organization"] = request.headers["OpenAI-Organization"]
+        if request.headers.get("OpenAI-Project"):
+            upstream_headers["OpenAI-Project"] = request.headers["OpenAI-Project"]
+
+        upstream_res = None
+        upstream_json = {}
+        inference_latency_ms = 0.0
+
+        try:
+            inf_start = time.time()
+            upstream_res = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                json=forward_payload,
+                headers=upstream_headers,
+                timeout=90
+            )
+            inference_latency_ms = (time.time() - inf_start) * 1000.0
+
+            try:
+                upstream_json = upstream_res.json()
+            except Exception:
+                upstream_json = {"error": {"message": upstream_res.text, "type": "upstream_error"}}
+
+        except requests.exceptions.Timeout:
+            return Response({
+                "error": {
+                    "message": "Upstream OpenAI API timed out.",
+                    "type": "api_timeout_error",
+                    "code": "gateway_timeout"
+                }
+            }, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except Exception as e:
+            logger.error(f"Error proxying to OpenAI: {e}")
+            return Response({
+                "error": {
+                    "message": f"Failed to connect to upstream OpenAI: {str(e)}",
+                    "type": "api_connection_error",
+                    "code": "bad_gateway"
+                }
+            }, status=status.HTTP_502_BAD_GATEWAY)
+
+        # 6. Record Session & Cost Log
+        cost_metrics = compute_request_metrics(
+            raw_tokens=raw_tokens,
+            sir_tokens=sir_tokens,
+            target_model=target_model
+        )
+
+        response_content = ""
+        if upstream_res and upstream_res.status_code == 200:
+            choices = upstream_json.get("choices", [])
+            if choices and "message" in choices[0]:
+                response_content = choices[0]["message"].get("content", "")
+            session_status = 'executed' if not is_passthrough else 'passthrough'
+        else:
+            session_status = 'failed'
+
+        session = CompressionSession.objects.create(
+            raw_prompt=raw_prompt,
+            sir_yaml=sir_yaml,
+            target_model=target_model,
+            raw_token_count=raw_tokens,
+            sir_token_count=sir_tokens,
+            tokens_saved=cost_metrics['tokens_saved'],
+            token_reduction_pct=cost_metrics['token_reduction_pct'],
+            fidelity_score=fidelity_score,
+            fidelity_passed=fidelity_passed,
+            compression_latency_ms=comp_latency,
+            inference_latency_ms=round(inference_latency_ms, 2),
+            llm_response=response_content[:4000] if response_content else str(upstream_json)[:500],
+            compression_engine=f"Proxy ({engine_used})",
+            client_ip=client_ip,
+            status=passthrough_status or session_status
+        )
+
+        CostLog.objects.create(
+            session=session,
+            target_model=target_model,
+            input_cost_per_1m=cost_metrics['pricing']['input_per_1m'],
+            output_cost_per_1m=cost_metrics['pricing']['output_per_1m'],
+            raw_input_cost_usd=cost_metrics['raw_input_cost_usd'],
+            sir_input_cost_usd=cost_metrics['sir_input_cost_usd'],
+            cost_saved_usd=cost_metrics['cost_saved_usd']
+        )
+
+        # 7. Return exact upstream response with custom telemetry headers
+        response = Response(upstream_json, status=upstream_res.status_code if upstream_res else 200)
+        response["x-sir-tokens-saved"] = str(cost_metrics['tokens_saved'])
+        response["x-sir-savings-usd"] = f"{cost_metrics['cost_saved_usd']:.6f}"
+        response["x-sir-reduction-pct"] = f"{cost_metrics['token_reduction_pct']:.1f}%"
+        response["x-sir-status"] = passthrough_status or session_status
+        response["x-sir-fidelity"] = f"{fidelity_score:.4f}"
+        response["x-sir-session-id"] = str(session.id)
+
+        return response
+
+
 class HistoryListView(APIView):
     """
     GET /api/history/
@@ -172,7 +415,6 @@ class HistoryListView(APIView):
         sessions = CompressionSession.objects.all().select_related('cost_log')[:limit]
         serializer = CompressionSessionSerializer(sessions, many=True)
         
-        # Summary statistics
         total_sessions = CompressionSession.objects.count()
         total_tokens_saved = sum(s.tokens_saved for s in sessions)
         total_dollars_saved = sum(s.cost_log.cost_saved_usd for s in sessions if hasattr(s, 'cost_log'))
@@ -217,10 +459,8 @@ class SystemHealthView(APIView):
         has_groq = bool(groq_key and groq_key not in ["your_groq_api_key_here"])
         ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
-        # Test Ollama reachability quickly
         ollama_available = False
         try:
-            import requests
             r = requests.get(f"{ollama_host}/api/tags", timeout=0.5)
             ollama_available = (r.status_code == 200)
         except Exception:

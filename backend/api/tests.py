@@ -1,3 +1,4 @@
+from unittest.mock import patch, MagicMock
 from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework import status
@@ -44,7 +45,7 @@ class CostTrackerServiceTests(TestCase):
 class FidelityServiceTests(TestCase):
     def test_fidelity_evaluation(self):
         prompt = "Write a Python function to filter numbers above 10."
-        sir_yaml = "sir_version: '1.0'\ntask:\n  primary_goal: Filter numbers above 10 in Python"
+        sir_yaml = "goal: filter_numbers(nums: list[int], threshold: int=10) -> list[int]\nspec:\n  filter: num > threshold"
         score, passed = evaluate_fidelity(prompt, sir_yaml)
         self.assertIsInstance(score, float)
         self.assertTrue(0.0 <= score <= 1.0)
@@ -98,7 +99,7 @@ class APIRestEndpointsTests(TestCase):
 
     def test_compress_endpoint(self):
         payload = {
-            "raw_prompt": "Please write a Python script that calculates factorial of n using recursion.",
+            "raw_prompt": "Hey there! I really need some help writing a clean Python function. I have this large list of dictionaries where each dictionary represents an event with a 'timestamp' key (which is a Unix epoch integer) and a float 'value' key. I need a function called filter_events that takes this list, sorts it by timestamp in ascending order, and then filters it so it only returns entries where the value is strictly greater than a threshold parameter that the caller passes in. Please make sure to add standard PEP-484 type hints and a descriptive docstring explaining the parameters. Thanks so much!",
             "target_model": "gpt-4o",
             "compression_engine": "auto"
         }
@@ -135,7 +136,87 @@ class APIRestEndpointsTests(TestCase):
         res = self.client.post('/api/compress/', payload, format='json')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(res.data.get('is_passthrough'))
-        self.assertEqual(res.data.get('passthrough_status'), 'PASSTHROUGH_ALREADY_OPTIMAL')
+        self.assertIn(res.data.get('passthrough_status'), ['PASSTHROUGH_OPTIMAL', 'PASSTHROUGH_ALREADY_OPTIMAL'])
         self.assertEqual(res.data['session']['sir_yaml'], short_prompt)
         self.assertEqual(res.data['cost_metrics']['token_reduction_pct'], 0.0)
         self.assertEqual(res.data['fidelity']['score'], 1.0)
+
+
+class OpenAIDropInProxyTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_proxy_unauthorized_without_bearer(self):
+        payload = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Write hello world"}]
+        }
+        res = self.client.post('/api/v1/chat/completions', payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn("error", res.data)
+        self.assertEqual(res.data["error"]["code"], "unauthorized")
+
+    def test_proxy_missing_messages(self):
+        headers = {'HTTP_AUTHORIZATION': 'Bearer sk-mocktestkey123'}
+        payload = {
+            "model": "gpt-4o"
+        }
+        res = self.client.post('/api/v1/chat/completions', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", res.data)
+
+    @patch('requests.post')
+    def test_proxy_successful_byok_forwarding(self, mock_post):
+        # Mock upstream OpenAI response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-test-12345",
+            "object": "chat.completion",
+            "created": 1700000000,
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "def filter_events(events, threshold):\n    return [e for e in sorted(events, key=lambda x: x['timestamp']) if e['value'] > threshold]"
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 42,
+                "completion_tokens": 28,
+                "total_tokens": 70
+            }
+        }
+        mock_post.return_value = mock_response
+
+        headers = {'HTTP_AUTHORIZATION': 'Bearer sk-test-byok-user-key'}
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "You are a helpful coding assistant."},
+                {"role": "user", "content": "Hey there! I really need some help writing a clean Python function. I have this large list of dictionaries where each dictionary represents an event with a 'timestamp' key (which is a Unix epoch integer) and a float 'value' key. I need a function called filter_events that takes this list, sorts it by timestamp in ascending order, and then filters it so it only returns entries where the value is strictly greater than a threshold parameter that the caller passes in. Please make sure to add standard PEP-484 type hints and a descriptive docstring explaining the parameters. Thanks so much!"}
+            ],
+            "temperature": 0.2
+        }
+
+        res = self.client.post('/api/v1/chat/completions/', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("choices", res.data)
+        self.assertEqual(res.data["choices"][0]["message"]["role"], "assistant")
+
+        # Verify custom telemetry headers
+        self.assertIn("x-sir-tokens-saved", res.headers)
+        self.assertIn("x-sir-savings-usd", res.headers)
+        self.assertIn("x-sir-status", res.headers)
+        self.assertIn("x-sir-fidelity", res.headers)
+
+        # Verify session logged in database
+        session = CompressionSession.objects.first()
+        self.assertIsNotNone(session)
+        self.assertEqual(session.target_model, "gpt-4o")
+        self.assertGreater(session.tokens_saved, 0)
+        self.assertIn("Proxy", session.compression_engine)

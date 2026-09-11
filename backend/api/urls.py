@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     CompressPromptView,
     ExecutePromptView,
+    OpenAIChatCompletionsProxyView,
     HistoryListView,
     PricingListView,
     SystemHealthView
@@ -13,4 +14,8 @@ urlpatterns = [
     path('history/', HistoryListView.as_view(), name='api-history'),
     path('pricing/', PricingListView.as_view(), name='api-pricing'),
     path('health/', SystemHealthView.as_view(), name='api-health'),
+    
+    # OpenAI-Compatible Drop-In Proxy Endpoints
+    path('v1/chat/completions', OpenAIChatCompletionsProxyView.as_view(), name='api-v1-chat-completions'),
+    path('v1/chat/completions/', OpenAIChatCompletionsProxyView.as_view(), name='api-v1-chat-completions-slash'),
 ]

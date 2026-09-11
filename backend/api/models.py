@@ -9,8 +9,12 @@ class CompressionSession(models.Model):
         ('executed', 'Executed'),
         ('failed', 'Failed'),
         ('passthrough', 'Optimal (Pass-through)'),
+        ('PASSTHROUGH_OPTIMAL', 'Pass-through (Optimal)'),
         ('PASSTHROUGH_ALREADY_OPTIMAL', 'Pass-through (Already Optimal)'),
+        ('PASSTHROUGH_NEGATIVE_OVERHEAD', 'Pass-through (Negative Overhead)'),
         ('PASSTHROUGH_NEGATIVE_SAVINGS', 'Pass-through (Negative Savings)'),
+        ('FALLBACK_FIDELITY_GUARD', 'Fallback (Fidelity Guard)'),
+        ('FALLBACK', 'Fallback (General)'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -27,8 +31,9 @@ class CompressionSession(models.Model):
     compression_latency_ms = models.FloatField(default=0.0)
     inference_latency_ms = models.FloatField(null=True, blank=True)
     llm_response = models.TextField(null=True, blank=True, help_text="Output returned by frontier LLM")
-    compression_engine = models.CharField(max_length=48, default="gemini", help_text="Engine used (gemini, groq, ollama)")
-    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default='compressed')
+    compression_engine = models.CharField(max_length=64, default="gemini", help_text="Engine used (gemini, groq, ollama, proxy)")
+    client_ip = models.CharField(max_length=64, null=True, blank=True, help_text="Client IP for telemetry")
+    status = models.CharField(max_length=64, choices=STATUS_CHOICES, default='compressed')
 
     class Meta:
         ordering = ['-created_at']
