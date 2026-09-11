@@ -1,6 +1,7 @@
 """
 Django REST Framework API Views for SIR Gateway
-Includes Phase-4 OpenAI-Compatible Drop-In Proxy with Multi-Provider Dynamic Routing (OpenAI, Groq, Gemini) & Live Telemetry Logging.
+Includes Phase-4 OpenAI-Compatible Drop-In Proxy with Multi-Provider Dynamic Routing (OpenAI, Groq, Gemini),
+System-Level Verbosity Suppression Directive Injection, and Live Telemetry Logging.
 """
 
 import os
@@ -31,6 +32,11 @@ from .services.cost_tracker import (
 )
 
 logger = logging.getLogger(__name__)
+
+CONCISE_SYSTEM_DIRECTIVE = {
+    "role": "system",
+    "content": "Be direct and concise. Deliver exact answers or code implementations without conversational preambles, tutorial breakdowns, or concluding pleasantries unless explicitly requested."
+}
 
 
 def get_client_ip(request) -> str:
@@ -179,22 +185,8 @@ class ExecutePromptView(APIView):
 class OpenAIChatCompletionsProxyView(APIView):
     """
     POST /api/v1/chat/completions/
-    OpenAI-Compatible Drop-In Proxy with BYOK & Dynamic Multi-Provider Routing (OpenAI, Groq, Gemini).
-    1. Extracts client's Authorization header (Bearer sk-..., Bearer gsk_..., Bearer AIza...).
-    2. Dynamically selects upstream provider:
-       - 'Bearer gsk_' or model starting with 'llama-' -> Groq Cloud API
-       - 'Bearer AIza' or model starting with 'gemini-' -> Gemini OpenAI-compatible API
-       - Otherwise -> OpenAI API
-    3. Optimizes incoming user messages to d-SIR via internal compressor with pass-through guards.
-    4. Forwards d-SIR payload to target upstream provider using the client's BYOK key.
-    5. Logs real-time token savings and telemetry to CompressionSession.
-    6. Returns exact upstream JSON with telemetry headers:
-       - x-sir-tokens-saved
-       - x-sir-provider
-       - x-sir-savings-usd
-       - x-sir-reduction-pct
-       - x-sir-status
-       - x-sir-fidelity
+    OpenAI-Compatible Drop-In Proxy with BYOK, Multi-Provider Routing (OpenAI, Groq, Gemini),
+    and System-Level Verbosity Suppression Directive Injection.
     """
     authentication_classes = []
     permission_classes = []
@@ -230,13 +222,14 @@ class OpenAIChatCompletionsProxyView(APIView):
         body_data = request.data if isinstance(request.data, dict) else {}
         messages = body_data.get("messages", [])
         raw_model = body_data.get("model")
+        raw_model_str = str(raw_model).lower() if raw_model else ""
 
-        # 3. Multi-Provider Routing Detection
-        if auth_header.startswith("Bearer gsk_") or (raw_model and str(raw_model).startswith("llama-")):
+        # 3. Dynamic Multi-Provider Routing Detection
+        if auth_header.startswith("Bearer gsk_") or "llama" in raw_model_str or "qwen" in raw_model_str or "gpt-oss" in raw_model_str:
             provider = "groq"
             upstream_url = "https://api.groq.com/openai/v1/chat/completions"
             target_model = raw_model if raw_model else "llama-3.3-70b-versatile"
-        elif auth_header.startswith("Bearer AIza") or (raw_model and str(raw_model).startswith("gemini-")):
+        elif auth_header.startswith("Bearer AIza") or "gemini" in raw_model_str:
             provider = "gemini"
             upstream_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
             target_model = raw_model if raw_model else "gemini-1.5-flash"
@@ -266,13 +259,12 @@ class OpenAIChatCompletionsProxyView(APIView):
                 if isinstance(content, str):
                     raw_prompt = content
                 elif isinstance(content, list):
-                    # In case of multimodal/multi-part content
+                    # Multimodal/multi-part content
                     text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
                     raw_prompt = " ".join(text_parts) if text_parts else str(content)
                 break
 
         if not raw_prompt:
-            # Fallback to last message
             target_index = len(messages) - 1
             raw_prompt = str(messages[-1].get("content", ""))
 
@@ -301,18 +293,24 @@ class OpenAIChatCompletionsProxyView(APIView):
         else:
             optimized_content = (
                 f"You are executing an engineering task specified in dense Semantic Intermediate Representation (d-SIR) YAML.\n"
-                f"Follow all goal signatures and specifications precisely.\n\n"
+                f"Follow all goal signatures, specifications, and output_mode directives precisely.\n\n"
                 f"--- d-SIR SPECIFICATION ---\n"
                 f"{sir_yaml}\n"
                 f"--- END SPECIFICATION ---\n\n"
                 f"Produce the solution now:"
             )
 
-        updated_messages = list(messages)
+        updated_messages = [dict(m) for m in messages]
         updated_messages[target_index] = {
             **updated_messages[target_index],
             "content": optimized_content
         }
+
+        # 6. Upstream System Message Injection for Output Verbosity Suppression
+        # If no system message exists in the payload, prepend the concise directive to index 0
+        has_system_msg = any(msg.get("role") in ["system", "developer"] for msg in updated_messages)
+        if not has_system_msg:
+            updated_messages.insert(0, dict(CONCISE_SYSTEM_DIRECTIVE))
 
         forward_payload = {
             **body_data,
@@ -320,13 +318,12 @@ class OpenAIChatCompletionsProxyView(APIView):
             "model": target_model
         }
 
-        # 6. Forward to Upstream Provider (OpenAI, Groq, Gemini)
+        # 7. Forward to Upstream Provider (OpenAI, Groq, Gemini)
         upstream_headers = {
             "Authorization": f"Bearer {client_api_key}",
             "Content-Type": "application/json"
         }
 
-        # Forward optional organization/project headers if provided by client
         if request.headers.get("OpenAI-Organization"):
             upstream_headers["OpenAI-Organization"] = request.headers["OpenAI-Organization"]
         if request.headers.get("OpenAI-Project"):
@@ -369,7 +366,7 @@ class OpenAIChatCompletionsProxyView(APIView):
                 }
             }, status=status.HTTP_502_BAD_GATEWAY)
 
-        # 7. Record Session & Cost Log
+        # 8. Record Session & Cost Log with Output Token Tracking
         cost_metrics = compute_request_metrics(
             raw_tokens=raw_tokens,
             sir_tokens=sir_tokens,
@@ -413,7 +410,7 @@ class OpenAIChatCompletionsProxyView(APIView):
             cost_saved_usd=cost_metrics['cost_saved_usd']
         )
 
-        # 8. Return exact upstream response with custom telemetry headers
+        # 9. Return exact upstream response with custom telemetry headers
         response = Response(upstream_json, status=upstream_res.status_code if upstream_res else 200)
         response["x-sir-tokens-saved"] = str(cost_metrics['tokens_saved'])
         response["x-sir-provider"] = provider

@@ -3,6 +3,7 @@ Compression & Distillation Pipeline
 Compiles raw verbose LLM prompts into dense Semantic Intermediate Representation (d-SIR) YAML.
 Supports Groq Cloud & Gemini Flash with resilient model discovery and ultra-dense offline distillation fallback.
 Enforces Anti-Inflation Pre-check, Negative Overhead Net, and Fidelity Safety Net.
+Appends explicit output_mode directives to suppress downstream LLM conversational preambles and verbosity.
 """
 
 import os
@@ -54,19 +55,22 @@ def count_tokens(text: str) -> int:
 
 
 DENSE_SIR_SYSTEM_PROMPT = """You are an ultra-dense Semantic Intermediate Representation (d-SIR) Compiler.
-Your ONLY job is to compile verbose natural language prompts into a minimal, ultra-dense YAML specification.
+Your ONLY job is to compile verbose natural language prompts into a minimal, ultra-dense YAML specification with explicit output verbosity suppression.
 
 STRICT COMPRESSION RULES:
 1. Strip 100% of conversational filler, pleasantries, explanations, greetings, and redundant sentences.
-2. DO NOT output verbose meta-keys like 'sir_version', 'execution_hints', 'background', or 'entities'.
-3. Use short code signatures, mathematical conditions, and concise keyword phrases.
-4. Output ONLY valid YAML conforming to this compact d-SIR schema:
+2. Extract the core task, variables, and constraints into minimal key-value lines.
+3. DO NOT output verbose meta-keys like 'sir_version', 'execution_hints', 'background', or 'entities'.
+4. Append an execution constraint:
+   - For coding/technical requests: output_mode: "direct code implementation only, zero preamble, no tutorial explanation unless requested."
+   - For factual or direct queries: output_mode: "direct concise answer only, omit pleasantries and summaries."
+5. Output ONLY valid YAML conforming to this compact d-SIR schema:
 
 goal: "<concise function signature, query target, or 1-line imperative goal>"
 spec:
   <concise_key_1>: <short phrase or condition>
   <concise_key_2>: <short phrase or condition>
-  <concise_key_3>: <short phrase or condition>
+output_mode: "<direct code implementation only, zero preamble, no tutorial explanation unless requested. | direct concise answer only, omit pleasantries and summaries.>"
 
 EXAMPLE INPUT:
 "Hey there! I really need some help writing a clean Python function. I have a list of dicts with 'timestamp' (Unix epoch int) and 'value' (float). I need a function filter_events that sorts by timestamp ascending and filters where value > threshold parameter. Please make sure to add PEP-484 type hints and a docstring. Thanks!"
@@ -78,6 +82,7 @@ spec:
   filter: value > threshold
   types: PEP-484 hints
   docstring: include param specs
+output_mode: "direct code implementation only, zero preamble, no tutorial explanation unless requested."
 """
 
 
@@ -102,7 +107,7 @@ def _clean_yaml_output(raw_text: str) -> str:
     
     try:
         parsed = yaml.safe_load(preprocessed_text)
-        if isinstance(parsed, dict) and ('goal' in parsed or 'spec' in parsed or 'task' in parsed):
+        if isinstance(parsed, dict) and ('goal' in parsed or 'spec' in parsed or 'task' in parsed or 'output_mode' in parsed):
             return yaml.dump(parsed, sort_keys=False, default_flow_style=False).strip()
     except Exception as e:
         logger.debug(f"YAML parse fallback: {e}")
@@ -241,7 +246,7 @@ def _call_ollama(prompt: str) -> Tuple[Optional[str], float]:
 def _heuristic_distillation(prompt: str) -> Tuple[str, float]:
     """
     Ultra-Dense d-SIR Offline Heuristic Distillation Engine.
-    Converts 150-200 token prompts into ~25-35 token d-SIR YAML.
+    Converts 150-200 token prompts into ~25-35 token d-SIR YAML with output_mode constraint.
     """
     start_time = time.time()
     lower_prompt = prompt.lower()
@@ -298,9 +303,16 @@ def _heuristic_distillation(prompt: str) -> Tuple[str, float]:
         spec_dict["format"] = "concise output"
         spec_dict["mode"] = "strict fidelity"
 
+    # Execution constraint for output token optimization & verbosity suppression
+    if "python" in lower_prompt or "function" in lower_prompt or "sql" in lower_prompt or "query" in lower_prompt or "api" in lower_prompt or "code" in lower_prompt:
+        output_mode = "direct code implementation only, zero preamble, no tutorial explanation unless requested."
+    else:
+        output_mode = "direct concise answer only, omit pleasantries and summaries."
+
     sir_dict = {
         "goal": goal_str,
-        "spec": spec_dict
+        "spec": spec_dict,
+        "output_mode": output_mode
     }
 
     yaml_output = yaml.dump(sir_dict, sort_keys=False, default_flow_style=False).strip()
@@ -315,7 +327,7 @@ def compile_prompt_to_sir(
 ) -> Dict[str, Any]:
     """
     Main compression dispatcher with Anti-Inflation Pre-check, Negative Savings Safety Net,
-    and Semantic Fidelity Guard.
+    Semantic Fidelity Guard, and Output Verbosity Suppression.
     """
     raw_tokens = count_tokens(raw_prompt)
 
@@ -465,7 +477,7 @@ def execute_sir_on_llm(
     if sir_yaml.strip().startswith('goal:') or 'spec:' in sir_yaml:
         execution_prompt = (
             f"You are executing an engineering task specified in dense Semantic Intermediate Representation (d-SIR) YAML.\n"
-            f"Follow all goal signatures and specifications precisely.\n\n"
+            f"Follow all goal signatures, specifications, and output_mode directives precisely.\n\n"
             f"--- d-SIR SPECIFICATION ---\n"
             f"{sir_yaml}\n"
             f"--- END SPECIFICATION ---\n\n"
@@ -484,7 +496,7 @@ def execute_sir_on_llm(
                 payload = {
                     "model": model_name,
                     "messages": [
-                        {"role": "system", "content": "You are a senior software engineer. Write clean, working code with docstrings and type hints."},
+                        {"role": "system", "content": "Be direct and concise. Deliver exact answers or code implementations without conversational preambles, tutorial breakdowns, or concluding pleasantries unless explicitly requested."},
                         {"role": "user", "content": execution_prompt}
                     ],
                     "temperature": 0.2,

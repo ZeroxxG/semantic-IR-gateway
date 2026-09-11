@@ -167,7 +167,6 @@ class OpenAIDropInProxyTests(TestCase):
 
     @patch('requests.post')
     def test_proxy_successful_openai_routing(self, mock_post):
-        # Mock upstream response
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -211,9 +210,39 @@ class OpenAIDropInProxyTests(TestCase):
         self.assertIn("x-sir-tokens-saved", res.headers)
         self.assertEqual(res.headers.get("x-sir-provider"), "openai")
 
-        # Verify call forwarded to OpenAI
+        # Verify call forwarded to OpenAI and system directive was injected
         called_url = mock_post.call_args[0][0]
+        called_payload = mock_post.call_args[1]["json"]
         self.assertEqual(called_url, "https://api.openai.com/v1/chat/completions")
+        self.assertEqual(called_payload["messages"][0]["role"], "system")
+        self.assertIn("Be direct and concise", called_payload["messages"][0]["content"])
+
+    @patch('requests.post')
+    def test_proxy_system_message_preserved_when_present(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-test-sys",
+            "choices": [{"message": {"role": "assistant", "content": "Output"}}]
+        }
+        mock_post.return_value = mock_response
+
+        headers = {'HTTP_AUTHORIZATION': 'Bearer sk-test-key'}
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "Custom caller prompt instruction"},
+                {"role": "user", "content": "Write quicksort in python"}
+            ]
+        }
+
+        res = self.client.post('/api/v1/chat/completions/', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        called_payload = mock_post.call_args[1]["json"]
+        # System message preserved
+        self.assertEqual(called_payload["messages"][0]["role"], "system")
+        self.assertEqual(called_payload["messages"][0]["content"], "Custom caller prompt instruction")
 
     @patch('requests.post')
     def test_proxy_groq_routing_by_key(self, mock_post):
