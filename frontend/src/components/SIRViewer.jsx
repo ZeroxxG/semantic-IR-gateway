@@ -9,7 +9,8 @@ import {
   Sparkles, 
   ArrowDownRight, 
   ShieldCheck, 
-  Info 
+  Info,
+  AlertTriangle 
 } from 'lucide-react';
 
 export default function SIRViewer({
@@ -88,6 +89,7 @@ export default function SIRViewer({
   };
 
   const displayContent = getFormattedContent();
+  const isFallback = passthroughStatus?.includes('FALLBACK') || passthroughStatus === 'FALLBACK_FIDELITY_GUARD';
 
   return (
     <div className="flex flex-col h-full bg-surface-dark border border-surface-dark-elevated rounded-lg overflow-hidden shadow-claude-dark">
@@ -100,7 +102,7 @@ export default function SIRViewer({
           </div>
           <div>
             <h2 className="text-sm font-medium text-on-dark flex items-center gap-2 font-sans">
-              {isPassthrough ? 'Payload (Pass-Through)' : 'Compiled d-SIR'}
+              {isFallback ? 'Payload (Fallback Guard)' : isPassthrough ? 'Payload (Pass-Through)' : 'Compiled d-SIR'}
               {engineUsed && (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-pill bg-surface-dark-elevated text-on-dark-soft">
                   {engineUsed}
@@ -113,16 +115,21 @@ export default function SIRViewer({
         {/* Action Controls & Badges */}
         <div className="flex items-center gap-2">
           
-          {/* Optimal Pass-Through Badge vs Token Reduction Pill */}
-          {isPassthrough ? (
+          {/* Status Badges: COMPRESSED, PASSTHROUGH (Optimal), or FALLBACK */}
+          {isFallback ? (
+            <div className="px-2.5 py-1 rounded-pill bg-surface-dark-elevated text-semantic-warning text-xs font-mono font-medium flex items-center gap-1.5 border border-semantic-warning/30">
+              <AlertTriangle className="w-3.5 h-3.5 text-semantic-warning" />
+              <span>FALLBACK (Fidelity)</span>
+            </div>
+          ) : isPassthrough ? (
             <div className="px-2.5 py-1 rounded-pill bg-surface-dark-elevated text-accent-teal text-xs font-mono font-medium flex items-center gap-1.5 border border-surface-dark-elevated">
               <ShieldCheck className="w-3.5 h-3.5 text-accent-teal" />
-              <span>Optimal (Pass-through)</span>
+              <span>PASSTHROUGH (Optimal)</span>
             </div>
           ) : reductionPct > 0 ? (
             <div className="px-2.5 py-1 rounded-pill bg-surface-dark-elevated text-primary text-xs font-mono font-medium flex items-center gap-1 border border-surface-dark-elevated">
               <ArrowDownRight className="w-3.5 h-3.5 text-primary" />
-              <span>-{reductionPct.toFixed(1)}% Tokens</span>
+              <span>COMPRESSED (-{reductionPct.toFixed(1)}%)</span>
             </div>
           ) : null}
 
@@ -191,10 +198,14 @@ export default function SIRViewer({
         </div>
       </div>
 
-      {/* Pass-Through Info Banner */}
-      {isPassthrough && (
+      {/* Pass-Through / Fallback Info Banner */}
+      {(isPassthrough || isFallback) && (
         <div className="px-6 py-2.5 bg-surface-dark-elevated border-b border-surface-dark-elevated flex items-center gap-2 text-xs text-on-dark-soft font-mono">
-          <Info className="w-4 h-4 text-accent-teal flex-shrink-0" />
+          {isFallback ? (
+            <AlertTriangle className="w-4 h-4 text-semantic-warning flex-shrink-0" />
+          ) : (
+            <Info className="w-4 h-4 text-accent-teal flex-shrink-0" />
+          )}
           <span>{passthroughReason || "Anti-Inflation Guard: Original prompt preserved to prevent token expansion."}</span>
         </div>
       )}
@@ -231,7 +242,7 @@ export default function SIRViewer({
       {/* Bottom Action Bar */}
       <div className="px-6 py-4 border-t border-surface-dark-elevated bg-surface-dark flex items-center justify-between">
         <div className="text-xs text-on-dark-soft font-mono">
-          {isPassthrough ? 'Direct pass-through' : 'Dense d-SIR schema'}
+          {isFallback ? 'Reverted to raw • 100% fidelity' : isPassthrough ? 'Direct pass-through • 0% inflation' : 'Dense d-SIR schema • Max savings'}
         </div>
         <button
           onClick={onExecute}

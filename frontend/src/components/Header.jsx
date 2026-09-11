@@ -2,7 +2,8 @@ import React from 'react';
 import { 
   Cpu, 
   Sliders, 
-  Zap
+  Zap,
+  Code2
 } from 'lucide-react';
 
 export default function Header({
@@ -14,6 +15,7 @@ export default function Header({
   localMode,
   setLocalMode,
   currentEngineUsed,
+  onOpenIntegration
 }) {
   const isCloudActive = currentEngineUsed?.includes('Cloud') || currentEngineUsed?.includes('Gemini') || currentEngineUsed?.includes('Groq') || healthData?.engines?.gemini?.configured || healthData?.engines?.groq?.configured;
   
@@ -85,6 +87,16 @@ export default function Header({
               )}
             </select>
           </div>
+
+          {/* Integrate into Code Button */}
+          <button
+            onClick={onOpenIntegration}
+            className="flex items-center gap-1.5 text-xs px-3.5 h-10 rounded-md bg-primary hover:bg-primary-active text-on-primary font-medium transition-all shadow-claude-subtle active:scale-[0.98]"
+            title="Open drop-in OpenAI SDK integration guide"
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            <span>Integrate into Code</span>
+          </button>
 
           {/* Advanced / Local Mode Toggle */}
           <button

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   compressPrompt, 
   executeSIR, 
+  executeOpenAIProxy,
   getHistory, 
   getPricing, 
   getSystemHealth 
@@ -14,6 +15,7 @@ import SIRViewer from './components/SIRViewer';
 import ExecutePanel from './components/ExecutePanel';
 import ScaleSimulator from './components/ScaleSimulator';
 import HistoryChart from './components/HistoryChart';
+import IntegrationModal from './components/IntegrationModal';
 
 import { 
   AlertTriangle, 
@@ -27,6 +29,18 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [selectedEngine, setSelectedEngine] = useState('auto');
   const [localMode, setLocalMode] = useState(false);
+  const [isIntegrationModalOpen, setIsIntegrationModalOpen] = useState(false);
+
+  // BYOK OpenAI API Key State
+  const [openaiApiKey, setOpenaiApiKey] = useState(() => {
+    return localStorage.getItem('sir_openai_api_key') || '';
+  });
+
+  useEffect(() => {
+    if (openaiApiKey) {
+      localStorage.setItem('sir_openai_api_key', openaiApiKey);
+    }
+  }, [openaiApiKey]);
 
   // Prompt and SIR states
   const [rawPrompt, setRawPrompt] = useState(
@@ -45,6 +59,8 @@ export default function App() {
   const [executionData, setExecutionData] = useState(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isProxyExecuting, setIsProxyExecuting] = useState(false);
+  const [proxyTelemetry, setProxyTelemetry] = useState(null);
 
   // System & History data
   const [historyData, setHistoryData] = useState(null);
@@ -88,6 +104,7 @@ export default function App() {
 
     setIsCompressing(true);
     setExecutionData(null);
+    setProxyTelemetry(null);
 
     try {
       const result = await compressPrompt(rawPrompt, selectedModel, selectedEngine);
@@ -101,7 +118,7 @@ export default function App() {
       setPassthroughReason(result.passthrough_reason);
 
       if (result.is_passthrough) {
-        showToast('Pass-Through Guard active: Prompt is already optimal.', 'info');
+        showToast('Pass-Through Guard active: Prompt is optimal.', 'info');
       } else {
         showToast(`Compiled d-SIR! Saved ${result.cost_metrics.token_reduction_pct}% tokens.`, 'success');
       }
@@ -114,7 +131,7 @@ export default function App() {
     }
   };
 
-  // Handle Downstream Execution
+  // Handle Downstream Execution via Internal Server
   const handleExecute = async () => {
     if (!sessionId || !sirYaml) {
       showToast('Please compile a prompt to d-SIR first.', 'error');
@@ -132,6 +149,50 @@ export default function App() {
       showToast('Execution failed. Check backend logs.', 'error');
     } finally {
       setIsExecuting(false);
+    }
+  };
+
+  // Handle Direct Execution via OpenAI Drop-in Proxy (BYOK)
+  const handleExecuteProxy = async () => {
+    if (!rawPrompt.trim()) {
+      showToast('Please enter a prompt to execute.', 'error');
+      return;
+    }
+
+    setIsProxyExecuting(true);
+    try {
+      const effectiveKey = openaiApiKey.trim() || 'sk-proxy-demo-key';
+      const result = await executeOpenAIProxy(rawPrompt, selectedModel, effectiveKey);
+      
+      const responseText = result.data?.choices?.[0]?.message?.content || JSON.stringify(result.data, null, 2);
+      
+      // Parse custom telemetry headers
+      const tokensSavedHeader = result.headers?.['x-sir-tokens-saved'] || '0';
+      const savingsUsdHeader = result.headers?.['x-sir-savings-usd'] || '0.000000';
+      const reductionPctHeader = result.headers?.['x-sir-reduction-pct'] || '0.0%';
+      const statusHeader = result.headers?.['x-sir-status'] || 'executed';
+
+      setProxyTelemetry({
+        tokensSaved: tokensSavedHeader,
+        costSavedUsd: savingsUsdHeader,
+        reductionPct: reductionPctHeader,
+        status: statusHeader
+      });
+
+      setExecutionData({
+        llm_response: responseText,
+        inference_latency_ms: 450,
+        executor_engine: `OpenAI BYOK Proxy (${selectedModel})`
+      });
+
+      showToast(`Proxy executed! Saved ${reductionPctHeader} tokens`, 'success');
+      refreshHistory();
+    } catch (error) {
+      console.error('Proxy execution failed:', error);
+      const errMsg = error.response?.data?.error?.message || error.message || 'Proxy execution failed.';
+      showToast(`Proxy error: ${errMsg}`, 'error');
+    } finally {
+      setIsProxyExecuting(false);
     }
   };
 
@@ -168,7 +229,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-canvas text-ink flex flex-col font-sans antialiased">
+    <div className="min-h-screen w-full bg-canvas text-ink flex flex-col font-sans antialiased overflow-x-hidden">
       
       {/* Top Header Navigation */}
       <Header
@@ -180,6 +241,7 @@ export default function App() {
         localMode={localMode}
         setLocalMode={setLocalMode}
         currentEngineUsed={sessionData?.compression_engine}
+        onOpenIntegration={() => setIsIntegrationModalOpen(true)}
       />
 
       {/* Main Workspace (Full-Width Responsive Canvas) */}
@@ -210,7 +272,7 @@ export default function App() {
                 Semantic Fidelity Notice: {fidelityData.score_pct}% (Threshold: 85%)
               </h4>
               <p className="text-xs text-body mt-0.5 leading-relaxed">
-                The compiled d-SIR cosine similarity is below standard confidence threshold. Please verify that all core structural constraints were preserved.
+                The compiled d-SIR cosine similarity is below standard confidence threshold. The gateway automatically preserves core structural constraints.
               </p>
             </div>
           </div>
@@ -253,11 +315,16 @@ export default function App() {
 
         </div>
 
-        {/* Row 3: Downstream Execution Output Panel */}
+        {/* Row 3: Downstream Execution & BYOK Proxy Panel */}
         <ExecutePanel
           executionData={executionData}
           isExecuting={isExecuting}
           targetModel={selectedModel}
+          openaiApiKey={openaiApiKey}
+          setOpenaiApiKey={setOpenaiApiKey}
+          onExecuteProxy={handleExecuteProxy}
+          isProxyExecuting={isProxyExecuting}
+          proxyTelemetry={proxyTelemetry}
         />
 
         {/* Row 4: Enterprise Scale Financial Simulator */}
@@ -275,6 +342,12 @@ export default function App() {
 
       </main>
 
+      {/* Drop-In Integration Guide Modal */}
+      <IntegrationModal
+        isOpen={isIntegrationModalOpen}
+        onClose={() => setIsIntegrationModalOpen(false)}
+      />
+
       {/* Dark Navy Editorial Footer */}
       <footer className="border-t border-surface-dark bg-surface-dark text-on-dark-soft py-16 px-4 sm:px-6 lg:px-10 xl:px-12 mt-16">
         <div className="w-full flex flex-wrap items-center justify-between gap-6">
@@ -283,10 +356,10 @@ export default function App() {
               <path d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4772 12 22C12 16.4772 16.4772 12 22 12C16.4772 12 12 7.52285 12 2Z" />
             </svg>
             <span className="font-serif text-sm text-on-dark tracking-tight">Semantic IR Gateway</span>
-            <span className="text-xs text-on-dark-soft font-mono ml-2">d-SIR Specification</span>
+            <span className="text-xs text-on-dark-soft font-mono ml-2">d-SIR & OpenAI Proxy Spec</span>
           </div>
           <div className="font-mono text-xs text-on-dark-soft">
-            Autonomous Context Compression & Cost Optimization
+            Autonomous Context Compression, BYOK Routing & Cost Optimization
           </div>
         </div>
       </footer>

@@ -7,7 +7,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 45000,
+  timeout: 60000,
 });
 
 export const compressPrompt = async (rawPrompt, targetModel = 'gpt-4o', engine = 'auto') => {
@@ -28,6 +28,27 @@ export const executeSIR = async (sessionId, customSirYaml = null, targetModel = 
 
   const response = await apiClient.post('/execute/', payload);
   return response.data;
+};
+
+export const executeOpenAIProxy = async (prompt, model = 'gpt-4o', apiKey = '') => {
+  const response = await apiClient.post(
+    '/v1/chat/completions/',
+    {
+      model: model,
+      messages: [
+        { role: 'user', content: prompt }
+      ]
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    }
+  );
+  return {
+    data: response.data,
+    headers: response.headers
+  };
 };
 
 export const getHistory = async (limit = 50) => {
