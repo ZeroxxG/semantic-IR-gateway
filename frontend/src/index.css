@@ -3,51 +3,61 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
-  background-color: #080b11;
-  color: #f1f5f9;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #faf9f5;
+  color: #141413;
+  font-family: 'StyreneB', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow-x: hidden;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar for warm cream surface */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0d121c;
+  background: #faf9f5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+  background: #e6dfd8;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #d4ccbf;
 }
 
-/* Code block highlight styling */
-.code-font {
-  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+/* Dark code block scrollbars */
+.dark-scroll::-webkit-scrollbar-track {
+  background: #181715;
 }
 
-/* Custom glow animations */
-@keyframes pulse-glow {
-  0%, 100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
-  }
+.dark-scroll::-webkit-scrollbar-thumb {
+  background: #252320;
+  border-radius: 4px;
 }
 
-.animate-glow {
-  animation: pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.dark-scroll::-webkit-scrollbar-thumb:hover {
+  background: #383530;
+}
+
+/* Typography Utility Classes */
+.font-display {
+  font-family: 'Copernicus', 'Tiempos Headline', 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.font-editorial {
+  font-family: 'Copernicus', 'Tiempos Headline', 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 }

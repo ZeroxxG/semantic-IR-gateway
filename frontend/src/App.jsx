@@ -19,7 +19,7 @@ import {
   AlertTriangle, 
   CheckCircle2, 
   XCircle,
-  Layers
+  Info
 } from 'lucide-react';
 
 export default function App() {
@@ -101,7 +101,7 @@ export default function App() {
       setPassthroughReason(result.passthrough_reason);
 
       if (result.is_passthrough) {
-        showToast('Pass-Through Guard active: Prompt is optimal.', 'info');
+        showToast('Pass-Through Guard active: Prompt is already optimal.', 'info');
       } else {
         showToast(`Compiled d-SIR! Saved ${result.cost_metrics.token_reduction_pct}% tokens.`, 'success');
       }
@@ -168,16 +168,9 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0d14] text-slate-100 flex flex-col font-sans relative overflow-x-hidden selection:bg-emerald-500/30 selection:text-emerald-200">
+    <div className="min-h-screen w-full bg-canvas text-ink flex flex-col font-sans antialiased">
       
-      {/* Radial Background Glow Mesh */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-gradient-to-b from-sky-500/10 via-purple-500/5 to-transparent blur-3xl opacity-70" />
-        <div className="absolute top-1/3 -left-40 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-3xl" />
-        <div className="absolute top-2/3 -right-40 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-3xl" />
-      </div>
-
-      {/* Top Header */}
+      {/* Top Header Navigation */}
       <Header
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
@@ -189,41 +182,41 @@ export default function App() {
         currentEngineUsed={sessionData?.compression_engine}
       />
 
-      {/* Main Workspace (Bento Grid) */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 relative z-10">
+      {/* Main Workspace (Full-Width Responsive Canvas) */}
+      <main className="flex-1 w-full px-4 sm:px-6 lg:px-10 xl:px-12 py-8 space-y-8">
         
         {/* Toast Alert */}
         {toastMessage && (
-          <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold border backdrop-blur-xl transition-all ${
+          <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-md shadow-claude-card flex items-center gap-2.5 text-xs font-semibold border backdrop-blur-md transition-all ${
             toastMessage.type === 'error'
-              ? 'bg-rose-950/90 text-rose-200 border-rose-800'
+              ? 'bg-canvas text-semantic-error border-semantic-error/40'
               : toastMessage.type === 'success'
-              ? 'bg-emerald-950/90 text-emerald-200 border-emerald-800'
-              : 'bg-sky-950/90 text-sky-200 border-sky-800'
+              ? 'bg-canvas text-semantic-success border-semantic-success/40'
+              : 'bg-canvas text-primary border-primary/40'
           }`}>
-            {toastMessage.type === 'error' ? <XCircle className="w-4 h-4 text-rose-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+            {toastMessage.type === 'error' ? <XCircle className="w-4 h-4 text-semantic-error" /> : toastMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-semantic-success" /> : <Info className="w-4 h-4 text-primary" />}
             <span>{toastMessage.text}</span>
           </div>
         )}
 
-        {/* Fidelity Warning Banner */}
+        {/* Semantic Fidelity Warning Callout */}
         {fidelityData && !fidelityData.passed && (
-          <div className="bg-amber-950/40 border border-amber-500/50 rounded-2xl p-4 flex items-start gap-3 shadow-xl backdrop-blur-md">
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+          <div className="bg-surface-card border border-semantic-warning/60 rounded-lg p-5 flex items-start gap-3.5 shadow-claude-subtle">
+            <div className="p-2 rounded-md bg-canvas border border-semantic-warning/30 text-semantic-warning flex-shrink-0">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">
-                Semantic Fidelity Warning: {fidelityData.score_pct}% (Threshold: 85%)
+              <h4 className="text-xs font-bold text-ink uppercase tracking-wider font-mono">
+                Semantic Fidelity Notice: {fidelityData.score_pct}% (Threshold: 85%)
               </h4>
-              <p className="text-xs text-amber-200/80 mt-0.5">
-                The compiled d-SIR cosine similarity is lower than standard fidelity. Key constraints might need manual review before dispatching.
+              <p className="text-xs text-body mt-0.5 leading-relaxed">
+                The compiled d-SIR cosine similarity is below standard confidence threshold. Please verify that all core structural constraints were preserved.
               </p>
             </div>
           </div>
         )}
 
-        {/* Bento Row 1: KPI Metric Cards */}
+        {/* Row 1: KPI Metric Cards (Responsive 4-column row) */}
         <MetricCards
           sessionData={sessionData}
           costMetrics={costMetrics}
@@ -231,10 +224,10 @@ export default function App() {
           isPassthrough={isPassthrough}
         />
 
-        {/* Bento Row 2: Dual Pane Prompt & d-SIR Workspace */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[460px]">
+        {/* Row 2: Stable 2-Column Prompt & d-SIR Workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[500px] items-stretch">
           
-          {/* Left: Raw Prompt Editor */}
+          {/* Left: Raw Verbose Prompt Editor */}
           <PromptEditor
             rawPrompt={rawPrompt}
             setRawPrompt={setRawPrompt}
@@ -260,20 +253,20 @@ export default function App() {
 
         </div>
 
-        {/* Bento Row 3: Execution Output Panel */}
+        {/* Row 3: Downstream Execution Output Panel */}
         <ExecutePanel
           executionData={executionData}
           isExecuting={isExecuting}
           targetModel={selectedModel}
         />
 
-        {/* Bento Row 4: Enterprise Scale Financial Simulator */}
+        {/* Row 4: Enterprise Scale Financial Simulator */}
         <ScaleSimulator
           tokensSavedPerReq={costMetrics?.tokens_saved || 115}
           tokenReductionPct={reductionPct || 69.3}
         />
 
-        {/* Bento Row 5: Optimization History & Token Analytics Chart */}
+        {/* Row 5: Optimization History & Token Analytics Chart */}
         <HistoryChart
           historyData={historyData}
           onRefresh={refreshHistory}
@@ -282,15 +275,18 @@ export default function App() {
 
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900/80 bg-[#0a0d14]/90 py-5 mt-12 text-center text-xs text-slate-500 relative z-10 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-sky-400" />
-            <span className="font-semibold text-slate-400 font-mono">Semantic Intermediate Representation (d-SIR)</span>
+      {/* Dark Navy Editorial Footer */}
+      <footer className="border-t border-surface-dark bg-surface-dark text-on-dark-soft py-16 px-4 sm:px-6 lg:px-10 xl:px-12 mt-16">
+        <div className="w-full flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-on-dark">
+              <path d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4772 12 22C12 16.4772 16.4772 12 22 12C16.4772 12 12 7.52285 12 2Z" />
+            </svg>
+            <span className="font-serif text-sm text-on-dark tracking-tight">Semantic IR Gateway</span>
+            <span className="text-xs text-on-dark-soft font-mono ml-2">d-SIR Specification</span>
           </div>
-          <div className="font-mono text-[11px]">
-            Zero-Cost Cloud Tier & Resilient Offline Fallback
+          <div className="font-mono text-xs text-on-dark-soft">
+            Autonomous Context Compression & Cost Optimization
           </div>
         </div>
       </footer>
