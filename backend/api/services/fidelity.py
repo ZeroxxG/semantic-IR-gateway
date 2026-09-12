@@ -72,27 +72,24 @@ def extract_semantic_values_from_sir(sir_yaml: str) -> str:
 def fallback_text_similarity(raw_prompt: str, semantic_sir_text: str) -> float:
     """
     Lightweight fallback similarity based on token overlap & key term coverage.
-    Calibrated for the 88%–96% fidelity range.
+    Evaluates strictly between 0.0 and 1.0 without artificial floor clamping.
     """
     words1 = set(raw_prompt.lower().replace('\n', ' ').split())
     words2 = set(semantic_sir_text.lower().replace('\n', ' ').split())
     if not words1 or not words2:
-        return 0.92
+        return 0.0
 
     # Key entity coverage
     common = words1.intersection(words2)
-    coverage = len(common) / len(words2) if words2 else 1.0
-
-    # Calibrate into 88% - 96% range
-    calibrated = 0.86 + (coverage * 0.10)
-    return round(min(0.98, max(0.85, calibrated)), 4)
+    coverage = len(common) / len(words2) if words2 else 0.0
+    return round(max(0.0, min(1.0, coverage)), 4)
 
 
 def evaluate_fidelity(raw_prompt: str, sir_yaml: str) -> Tuple[float, bool]:
     """
     Evaluates semantic fidelity between the raw prompt and compiled SIR.
     Extracts pure semantic values first, embeds via MiniLM on CPU,
-    and applies calibrated cosine alignment to accurately register in the 88%-96% range.
+    and calculates true cosine similarity from normalized embeddings without artificial floor inflation.
     Returns: (fidelity_score: float [0.0-1.0], fidelity_passed: bool)
     """
     if not raw_prompt.strip() or not sir_yaml.strip():
@@ -107,20 +104,17 @@ def evaluate_fidelity(raw_prompt: str, sir_yaml: str) -> Tuple[float, bool]:
 
     try:
         if model is not None:
-            # Embed both texts
+            # Embed both texts with normalization
             embeddings = model.encode([raw_prompt, semantic_sir_text], normalize_embeddings=True)
-            # Raw cosine similarity between prompt and extracted semantic content
+            # Calculate true cosine similarity from normalized embeddings: raw_sim = float(embeddings[0] @ embeddings[1])
             raw_sim = float(embeddings[0] @ embeddings[1])
-            
-            # MiniLM dense-to-verbose calibration curve
-            # Maps raw cosine sim [0.45 - 0.85] into calibrated [0.88 - 0.96] range
-            calibrated_score = 0.76 + (raw_sim * 0.32)
-            calibrated_score = round(max(0.85, min(0.96, calibrated_score)), 4)
-            passed = calibrated_score >= FIDELITY_THRESHOLD
-            return calibrated_score, passed
+            fidelity_score = round(max(0.0, min(1.0, raw_sim)), 4)
+            passed = fidelity_score >= FIDELITY_THRESHOLD
+            return fidelity_score, passed
     except Exception as e:
-        logger.warning(f"Error computing sentence embeddings: {e}. Using calibrated fallback.")
+        logger.warning(f"Error computing sentence embeddings: {e}. Using fallback similarity.")
 
     score = fallback_text_similarity(raw_prompt, semantic_sir_text)
     passed = score >= FIDELITY_THRESHOLD
     return score, passed
+

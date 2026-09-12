@@ -50,6 +50,20 @@ class FidelityServiceTests(TestCase):
         self.assertIsInstance(score, float)
         self.assertTrue(0.0 <= score <= 1.0)
 
+    def test_fidelity_evaluation_dissimilar_fails(self):
+        prompt = "Calculate orbital mechanics trajectory and fuel payload requirements for Mars rocket insertion."
+        sir_yaml = "goal: make_chocolate_fudge_brownies(sugar_grams: int, cocoa: int) -> Recipe\nspec:\n  bake: 350F for 25 mins"
+        score, passed = evaluate_fidelity(prompt, sir_yaml)
+        self.assertIsInstance(score, float)
+        self.assertLess(score, 0.85)
+        self.assertFalse(passed)
+
+    def test_fidelity_empty_inputs(self):
+        score, passed = evaluate_fidelity("", "")
+        self.assertEqual(score, 0.0)
+        self.assertFalse(passed)
+
+
 
 class CompressionSessionModelTests(TestCase):
     def test_auto_prune_signal(self):
@@ -313,4 +327,61 @@ class OpenAIDropInProxyTests(TestCase):
             self.assertIn("openai/gpt-oss-20b", model_ids)
             self.assertIn("gemini-1.5-flash", model_ids)
             self.assertIn("claude-3.5-sonnet", model_ids)
+
+    @patch('requests.post')
+    @patch('api.views.compile_prompt_to_sir')
+    def test_proxy_fidelity_circuit_breaker_fallback(self, mock_compile, mock_post):
+        # Mock compilation returning low fidelity SIR output
+        raw_prompt = "Design a distributed raft consensus algorithm with heartbeat leader election and fault tolerance."
+        sir_mock_yaml = "goal: chocolate_cake_recipe\nspec:\n  bake: 30mins"
+        mock_compile.return_value = {
+            "sir_yaml": sir_mock_yaml,
+            "engine_used": "Groq Cloud (Active)",
+            "compression_latency_ms": 120.0,
+            "raw_tokens": 150,
+            "sir_tokens": 20,
+            "is_passthrough": False,
+            "passthrough_status": None,
+            "tokens_saved": 130,
+            "token_reduction_pct": 86.6,
+            "fidelity_score": 0.45,
+            "fidelity_passed": False
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-circuit-breaker",
+            "choices": [{"message": {"role": "assistant", "content": "Raft consensus implementation"}}]
+        }
+        mock_post.return_value = mock_response
+
+        headers = {'HTTP_AUTHORIZATION': 'Bearer sk-test-key-circuit-breaker'}
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": raw_prompt}
+            ]
+        }
+
+        res = self.client.post('/api/v1/chat/completions/', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Circuit breaker should have reverted to raw prompt
+        called_payload = mock_post.call_args[1]["json"]
+        # Last message should be the exact raw prompt, not the corrupted SIR
+        user_msg = [m for m in called_payload["messages"] if m["role"] == "user"][-1]
+        self.assertEqual(user_msg["content"], raw_prompt)
+
+        # Telemetry should record fallback
+        self.assertEqual(res.headers.get("x-sir-tokens-saved"), "0")
+        self.assertEqual(res.headers.get("x-sir-status"), "FALLBACK_FIDELITY_GUARD")
+
+        # Database session should record fallback and 0 savings
+        last_session = CompressionSession.objects.last()
+        self.assertEqual(last_session.status, "FALLBACK_FIDELITY_GUARD")
+        self.assertEqual(last_session.sir_yaml, raw_prompt)
+        self.assertEqual(last_session.tokens_saved, 0)
+        self.assertFalse(last_session.fidelity_passed)
+
 

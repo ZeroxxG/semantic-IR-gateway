@@ -23,8 +23,9 @@ from .serializers import (
     CostLogSerializer
 )
 from .services.compressor import compile_prompt_to_sir, execute_sir_on_llm, count_tokens
-from .services.fidelity import evaluate_fidelity
+from .services.fidelity import evaluate_fidelity, FIDELITY_THRESHOLD
 from .services.cost_tracker import (
+
     compute_request_metrics,
     project_enterprise_savings,
     get_all_pricing,
@@ -282,23 +283,44 @@ class OpenAIChatCompletionsProxyView(APIView):
         sir_tokens = comp_result['sir_tokens']
         is_passthrough = comp_result.get('is_passthrough', False)
         passthrough_status = comp_result.get('passthrough_status')
-        fidelity_score = comp_result.get('fidelity_score', 1.0)
-        fidelity_passed = comp_result.get('fidelity_passed', True)
-        tokens_saved = comp_result.get('tokens_saved', 0)
-        token_reduction_pct = comp_result.get('token_reduction_pct', 0.0)
 
-        # 5. Prepare updated payload with verified d-SIR (or raw if pass-through)
-        if is_passthrough:
-            optimized_content = raw_prompt
+        # Active circuit-breaker fidelity check
+        if not is_passthrough:
+            fidelity_score, passed = evaluate_fidelity(raw_prompt, sir_yaml)
+            if passed:
+                final_prompt = sir_yaml
+                is_compressed = True
+                fidelity_passed = True
+            else:
+                # Circuit breaker triggered: drop d-SIR and fallback to 100% raw prompt
+                final_prompt = raw_prompt
+                is_compressed = False
+                fidelity_passed = False
+                is_passthrough = True
+                passthrough_status = "FALLBACK_FIDELITY_GUARD"
+                sir_tokens = raw_tokens
+                logger.warning(
+                    f"Fidelity guard failed ({fidelity_score:.4f} < {FIDELITY_THRESHOLD}). Reverting to raw prompt."
+                )
         else:
+            final_prompt = raw_prompt
+            is_compressed = False
+            fidelity_score = comp_result.get('fidelity_score', 1.0)
+            fidelity_passed = comp_result.get('fidelity_passed', True)
+            sir_tokens = raw_tokens
+
+        # 5. Prepare updated payload with verified d-SIR (or raw if pass-through / fallback)
+        if is_compressed:
             optimized_content = (
                 f"You are executing an engineering task specified in dense Semantic Intermediate Representation (d-SIR) YAML.\n"
                 f"Follow all goal signatures, specifications, and output_mode directives precisely.\n\n"
                 f"--- d-SIR SPECIFICATION ---\n"
-                f"{sir_yaml}\n"
+                f"{final_prompt}\n"
                 f"--- END SPECIFICATION ---\n\n"
                 f"Produce the solution now:"
             )
+        else:
+            optimized_content = final_prompt
 
         updated_messages = [dict(m) for m in messages]
         updated_messages[target_index] = {
@@ -369,7 +391,7 @@ class OpenAIChatCompletionsProxyView(APIView):
         # 8. Record Session & Cost Log with Output Token Tracking
         cost_metrics = compute_request_metrics(
             raw_tokens=raw_tokens,
-            sir_tokens=sir_tokens,
+            sir_tokens=sir_tokens if is_compressed else raw_tokens,
             target_model=target_model
         )
 
@@ -378,18 +400,18 @@ class OpenAIChatCompletionsProxyView(APIView):
             choices = upstream_json.get("choices", [])
             if choices and "message" in choices[0]:
                 response_content = choices[0]["message"].get("content", "")
-            session_status = 'executed' if not is_passthrough else 'passthrough'
+            session_status = 'executed' if is_compressed else ('fallback' if passthrough_status == "FALLBACK_FIDELITY_GUARD" else 'passthrough')
         else:
             session_status = 'failed'
 
         session = CompressionSession.objects.create(
             raw_prompt=raw_prompt,
-            sir_yaml=sir_yaml,
+            sir_yaml=final_prompt,
             target_model=target_model,
             raw_token_count=raw_tokens,
-            sir_token_count=sir_tokens,
-            tokens_saved=cost_metrics['tokens_saved'],
-            token_reduction_pct=cost_metrics['token_reduction_pct'],
+            sir_token_count=sir_tokens if is_compressed else raw_tokens,
+            tokens_saved=cost_metrics['tokens_saved'] if is_compressed else 0,
+            token_reduction_pct=cost_metrics['token_reduction_pct'] if is_compressed else 0.0,
             fidelity_score=fidelity_score,
             fidelity_passed=fidelity_passed,
             compression_latency_ms=comp_latency,
@@ -406,21 +428,22 @@ class OpenAIChatCompletionsProxyView(APIView):
             input_cost_per_1m=cost_metrics['pricing']['input_per_1m'],
             output_cost_per_1m=cost_metrics['pricing']['output_per_1m'],
             raw_input_cost_usd=cost_metrics['raw_input_cost_usd'],
-            sir_input_cost_usd=cost_metrics['sir_input_cost_usd'],
-            cost_saved_usd=cost_metrics['cost_saved_usd']
+            sir_input_cost_usd=cost_metrics['sir_input_cost_usd'] if is_compressed else cost_metrics['raw_input_cost_usd'],
+            cost_saved_usd=cost_metrics['cost_saved_usd'] if is_compressed else 0.0
         )
 
         # 9. Return exact upstream response with custom telemetry headers
         response = Response(upstream_json, status=upstream_res.status_code if upstream_res else 200)
-        response["x-sir-tokens-saved"] = str(cost_metrics['tokens_saved'])
+        response["x-sir-tokens-saved"] = str(cost_metrics['tokens_saved'] if is_compressed else 0)
         response["x-sir-provider"] = provider
-        response["x-sir-savings-usd"] = f"{cost_metrics['cost_saved_usd']:.6f}"
-        response["x-sir-reduction-pct"] = f"{cost_metrics['token_reduction_pct']:.1f}%"
+        response["x-sir-savings-usd"] = f"{(cost_metrics['cost_saved_usd'] if is_compressed else 0.0):.6f}"
+        response["x-sir-reduction-pct"] = f"{(cost_metrics['token_reduction_pct'] if is_compressed else 0.0):.1f}%"
         response["x-sir-status"] = passthrough_status or session_status
         response["x-sir-fidelity"] = f"{fidelity_score:.4f}"
         response["x-sir-session-id"] = str(session.id)
 
         return response
+
 
 
 class HistoryListView(APIView):

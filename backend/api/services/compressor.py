@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 from dotenv import load_dotenv
 
-from .fidelity import evaluate_fidelity
+from .fidelity import evaluate_fidelity, FIDELITY_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -422,9 +422,9 @@ def compile_prompt_to_sir(
             "passthrough_reason": f"Compiled representation ({sir_tokens} tokens) >= raw prompt ({raw_tokens} tokens). Pass-through activated to prevent inflation."
         }
 
-    # 3. Fidelity Safety Net: If cosine similarity < 0.85 -> FALLBACK_FIDELITY_GUARD
+    # 3. Fidelity Safety Net: If cosine similarity < FIDELITY_THRESHOLD -> FALLBACK_FIDELITY_GUARD
     fidelity_score, fidelity_passed = evaluate_fidelity(raw_prompt, sir_yaml)
-    if not fidelity_passed or fidelity_score < 0.85:
+    if not fidelity_passed or fidelity_score < FIDELITY_THRESHOLD:
         return {
             "sir_yaml": raw_prompt,
             "sir_text": raw_prompt,
@@ -439,8 +439,9 @@ def compile_prompt_to_sir(
             "status": "FALLBACK_FIDELITY_GUARD",
             "fidelity_score": fidelity_score,
             "fidelity_passed": False,
-            "passthrough_reason": f"Semantic fidelity score ({fidelity_score * 100:.1f}%) is below 85% threshold. Reverted to raw prompt for safety."
+            "passthrough_reason": f"Semantic fidelity score ({fidelity_score * 100:.1f}%) is below {int(FIDELITY_THRESHOLD * 100)}% threshold. Reverted to raw prompt for safety."
         }
+
 
     tokens_saved = raw_tokens - sir_tokens
     token_reduction_pct = round((tokens_saved / raw_tokens) * 100.0, 1)
