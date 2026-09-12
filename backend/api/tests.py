@@ -289,3 +289,28 @@ class OpenAIDropInProxyTests(TestCase):
 
         called_url = mock_post.call_args[0][0]
         self.assertEqual(called_url, "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
+
+    def test_models_endpoint_compatibility(self):
+        # Test routes under /api and root routes
+        test_routes = [
+            '/api/v1/models',
+            '/api/v1/models/',
+            '/api/models',
+            '/api/models/',
+            '/v1/models',
+            '/v1/models/',
+            '/models',
+            '/models/'
+        ]
+        for route in test_routes:
+            res = self.client.get(route)
+            self.assertEqual(res.status_code, status.HTTP_200_OK, f"Failed on route {route}")
+            self.assertEqual(res.data.get("object"), "list")
+            models_data = res.data.get("data", [])
+            model_ids = [m["id"] for m in models_data]
+            self.assertIn("gpt-4o", model_ids)
+            self.assertIn("llama-3.3-70b-versatile", model_ids)
+            self.assertIn("openai/gpt-oss-20b", model_ids)
+            self.assertIn("gemini-1.5-flash", model_ids)
+            self.assertIn("claude-3.5-sonnet", model_ids)
+

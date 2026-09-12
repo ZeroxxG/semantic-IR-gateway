@@ -3,6 +3,7 @@ from .views import (
     CompressPromptView,
     ExecutePromptView,
     OpenAIChatCompletionsProxyView,
+    ModelsProxyView,
     HistoryListView,
     PricingListView,
     SystemHealthView
@@ -18,4 +19,8 @@ urlpatterns = [
     # OpenAI-Compatible Drop-In Proxy Endpoints
     path('v1/chat/completions', OpenAIChatCompletionsProxyView.as_view(), name='api-v1-chat-completions'),
     path('v1/chat/completions/', OpenAIChatCompletionsProxyView.as_view(), name='api-v1-chat-completions-slash'),
+    path('v1/models', ModelsProxyView.as_view(), name='api-v1-models'),
+    path('v1/models/', ModelsProxyView.as_view(), name='api-v1-models-slash'),
+    path('models', ModelsProxyView.as_view(), name='api-models'),
+    path('models/', ModelsProxyView.as_view(), name='api-models-slash'),
 ]

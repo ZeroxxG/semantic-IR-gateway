@@ -514,3 +514,31 @@ class SystemHealthView(APIView):
                 }
             }
         }, status=status.HTTP_200_OK)
+
+
+class ModelsProxyView(APIView):
+    """
+    GET /v1/models, GET /models
+    OpenAI-compatible models list endpoint for connection checks in Cursor, Continue, Claude Desktop, etc.
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        models = [
+            {"id": "gpt-4o", "object": "model", "created": 1715367049, "owned_by": "openai"},
+            {"id": "gpt-4o-mini", "object": "model", "created": 1715367049, "owned_by": "openai"},
+            {"id": "gpt-4-turbo", "object": "model", "created": 1715367049, "owned_by": "openai"},
+            {"id": "claude-3.5-sonnet", "object": "model", "created": 1715367049, "owned_by": "anthropic"},
+            {"id": "gemini-1.5-flash", "object": "model", "created": 1715367049, "owned_by": "google"},
+            {"id": "gemini-1.5-pro", "object": "model", "created": 1715367049, "owned_by": "google"},
+            {"id": "llama-3.3-70b-versatile", "object": "model", "created": 1715367049, "owned_by": "groq"},
+            {"id": "llama-3.1-8b-instant", "object": "model", "created": 1715367049, "owned_by": "groq"},
+            {"id": "openai/gpt-oss-20b", "object": "model", "created": 1715367049, "owned_by": "groq"},
+            {"id": "qwen/qwen3.8-27b", "object": "model", "created": 1715367049, "owned_by": "groq"},
+        ]
+        return Response({
+            "object": "list",
+            "data": models
+        }, status=status.HTTP_200_OK)
+
