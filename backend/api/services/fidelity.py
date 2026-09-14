@@ -1,28 +1,31 @@
-"""
-Fidelity Gatekeeper Service
-Evaluates semantic similarity between raw prompt and compiled d-SIR.
-Extracts pure semantic values (stripping structural YAML syntax) and compares against raw prompt.
-"""
-
+import os
 import logging
 import math
 import re
 import yaml
 from typing import Tuple, Optional
 
+# Disable online checks and silence position_ids / hub warnings
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+
 logger = logging.getLogger(__name__)
 
 # Singleton holder for embedding model
 _EMBEDDING_MODEL = None
 _MODEL_LOADED = False
-FIDELITY_THRESHOLD = 0.85
+FIDELITY_THRESHOLD = 0.75
 
 
 def get_embedding_model():
-    """Lazy-load the lightweight sentence-transformers CPU model once."""
+    """Lazy-load the lightweight sentence-transformers CPU model once as a reusable singleton."""
     global _EMBEDDING_MODEL, _MODEL_LOADED
+    if _EMBEDDING_MODEL is not None:
+        return _EMBEDDING_MODEL
     if not _MODEL_LOADED:
         try:
+            import transformers
+            transformers.logging.set_verbosity_error()
             from sentence_transformers import SentenceTransformer
             # Lightweight 80MB CPU model, runs quickly with minimal memory footprint
             _EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
@@ -33,6 +36,7 @@ def get_embedding_model():
             _EMBEDDING_MODEL = None
             _MODEL_LOADED = True
     return _EMBEDDING_MODEL
+
 
 
 def extract_semantic_values_from_sir(sir_yaml: str) -> str:

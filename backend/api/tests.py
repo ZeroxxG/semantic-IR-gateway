@@ -55,8 +55,9 @@ class FidelityServiceTests(TestCase):
         sir_yaml = "goal: make_chocolate_fudge_brownies(sugar_grams: int, cocoa: int) -> Recipe\nspec:\n  bake: 350F for 25 mins"
         score, passed = evaluate_fidelity(prompt, sir_yaml)
         self.assertIsInstance(score, float)
-        self.assertLess(score, 0.85)
+        self.assertLess(score, 0.75)
         self.assertFalse(passed)
+
 
     def test_fidelity_empty_inputs(self):
         score, passed = evaluate_fidelity("", "")
@@ -280,6 +281,9 @@ class OpenAIDropInProxyTests(TestCase):
 
         called_url = mock_post.call_args[0][0]
         self.assertEqual(called_url, "https://api.groq.com/openai/v1/chat/completions")
+        called_payload = mock_post.call_args[1]["json"]
+        self.assertEqual(called_payload.get("max_tokens"), 4096)
+
 
     @patch('requests.post')
     def test_proxy_gemini_routing_by_model(self, mock_post):

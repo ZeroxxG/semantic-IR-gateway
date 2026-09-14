@@ -340,6 +340,11 @@ class OpenAIChatCompletionsProxyView(APIView):
             "model": target_model
         }
 
+        # Prevent truncated responses on Groq by ensuring max_tokens defaults to 4096 if not set
+        if provider == "groq" and "max_tokens" not in forward_payload and "max_completion_tokens" not in forward_payload:
+            forward_payload["max_tokens"] = 4096
+
+
         # 7. Forward to Upstream Provider (OpenAI, Groq, Gemini)
         upstream_headers = {
             "Authorization": f"Bearer {client_api_key}",
