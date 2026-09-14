@@ -501,9 +501,9 @@ def execute_sir_on_llm(
                         {"role": "user", "content": execution_prompt}
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 1024
+                    "max_tokens": 4096
                 }
-                res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=10)
+                res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=20)
                 if res.status_code == 200:
                     content = res.json()["choices"][0]["message"]["content"]
                     if content and len(content.strip()) > 10:
@@ -524,9 +524,10 @@ def execute_sir_on_llm(
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
                 payload = {
                     "contents": [{"parts": [{"text": execution_prompt}]}],
-                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024}
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096}
                 }
-                res = requests.post(url, json=payload, timeout=6)
+                res = requests.post(url, json=payload, timeout=20)
+
                 if res.status_code == 200:
                     candidates = res.json().get("candidates", [])
                     if candidates:

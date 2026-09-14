@@ -284,6 +284,37 @@ class OpenAIDropInProxyTests(TestCase):
         called_payload = mock_post.call_args[1]["json"]
         self.assertEqual(called_payload.get("max_tokens"), 4096)
 
+    @patch('requests.post')
+    def test_proxy_groq_enforces_min_4096_max_tokens(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-groq-4096",
+            "choices": [{"message": {"role": "assistant", "content": "A" * 5000}}]
+        }
+        mock_post.return_value = mock_response
+
+        headers = {'HTTP_AUTHORIZATION': 'Bearer gsk_test_key'}
+        # Client passes small max_tokens and conflicting max_completion_tokens
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": "Generate extensive documentation."}],
+            "max_tokens": 512,
+            "max_completion_tokens": 1024
+        }
+
+        res = self.client.post('/api/v1/chat/completions/', payload, format='json', **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        called_payload = mock_post.call_args[1]["json"]
+        self.assertEqual(called_payload.get("max_tokens"), 4096)
+        self.assertNotIn("max_completion_tokens", called_payload)
+
+        # Verify full response saved without slicing
+        last_session = CompressionSession.objects.last()
+        self.assertEqual(len(last_session.llm_response), 5000)
+
+
 
     @patch('requests.post')
     def test_proxy_gemini_routing_by_model(self, mock_post):

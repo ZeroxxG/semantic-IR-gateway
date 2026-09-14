@@ -340,9 +340,12 @@ class OpenAIChatCompletionsProxyView(APIView):
             "model": target_model
         }
 
-        # Prevent truncated responses on Groq by ensuring max_tokens defaults to 4096 if not set
-        if provider == "groq" and "max_tokens" not in forward_payload and "max_completion_tokens" not in forward_payload:
-            forward_payload["max_tokens"] = 4096
+        # Prevent truncated responses on Groq by ensuring max_tokens is at least 4096 and removing conflicting limits
+        if provider == "groq":
+            forward_payload.pop("max_completion_tokens", None)
+            client_max_tokens = forward_payload.get("max_tokens")
+            if client_max_tokens is None or (isinstance(client_max_tokens, (int, float)) and client_max_tokens < 4096):
+                forward_payload["max_tokens"] = 4096
 
 
         # 7. Forward to Upstream Provider (OpenAI, Groq, Gemini)
@@ -421,11 +424,12 @@ class OpenAIChatCompletionsProxyView(APIView):
             fidelity_passed=fidelity_passed,
             compression_latency_ms=comp_latency,
             inference_latency_ms=round(inference_latency_ms, 2),
-            llm_response=response_content[:4000] if response_content else str(upstream_json)[:500],
+            llm_response=response_content if response_content else str(upstream_json),
             compression_engine=f"Proxy ({provider} -> {engine_used})",
             client_ip=client_ip,
             status=passthrough_status or session_status
         )
+
 
         CostLog.objects.create(
             session=session,
