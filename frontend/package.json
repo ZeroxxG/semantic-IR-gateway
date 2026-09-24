@@ -1,6 +1,7 @@
 {
-  "name": "semantic-sir-gateway-frontend",
+  "name": "contextflow-frontend",
   "private": true,
+
   "version": "1.0.0",
   "type": "module",
   "scripts": {

@@ -18,11 +18,12 @@ export default function IntegrationModal({ isOpen, onClose }) {
 
   const pythonSnippet = `from openai import OpenAI
 
-# Initialize standard OpenAI client with SIR Gateway proxy
+# Initialize standard OpenAI client with ContextFlow proxy
 client = OpenAI(
     base_url="http://localhost:8000/api/v1",
     api_key="sk-your-openai-key-here"  # Forwarded directly via BYOK
 )
+
 
 # Send verbose prompt as usual — gateway automatically compresses to d-SIR
 response = client.chat.completions.create(
@@ -96,11 +97,12 @@ main();
             </div>
             <div>
               <h3 className="text-lg font-serif text-ink font-normal tracking-tight">
-                Integrate Drop-In OpenAI Proxy
+                Integrate ContextFlow Drop-In Proxy
               </h3>
               <p className="text-xs text-muted">
                 Replace your OpenAI <code className="text-body font-mono text-[11px] bg-canvas px-1.5 py-0.5 rounded border border-hairline">base_url</code> to achieve instant 60–75% token cost reduction with BYOK.
               </p>
+
             </div>
           </div>
           <button

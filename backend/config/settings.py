@@ -1,5 +1,5 @@
 """
-Django settings for Semantic Intermediate Representation (SIR) Gateway.
+Django settings for ContextFlow Gateway.
 """
 
 from pathlib import Path
@@ -13,7 +13,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 # Quick-start development settings - unsuitable for production
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-semantic-sir-gateway-secret-key-2026')
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-contextflow-secret-key-2026')
+
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')

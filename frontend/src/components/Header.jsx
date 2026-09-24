@@ -35,16 +35,17 @@ export default function Header({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-serif text-ink tracking-tight font-normal">
-                Semantic IR Gateway
+                ContextFlow
               </h1>
               <span className="text-[11px] px-2 py-0.5 rounded-pill bg-surface-card border border-hairline text-body font-medium">
-                d-SIR v1.0
+                v1.0
               </span>
             </div>
             <p className="text-[11px] text-muted hidden sm:block">
               Context Compression & Semantic Fidelity Middleware
             </p>
           </div>
+
         </div>
 
         {/* Global Controls & Status */}

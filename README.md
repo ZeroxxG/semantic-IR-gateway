@@ -1,5 +1,5 @@
-# Semantic Intermediate Representation (SIR) Gateway
-### An LLM Context & Cost Optimization Middleware and Visual Analytics Platform
+# ContextFlow
+### An LLM Context & Cost Optimization Gateway and Visual Analytics Platform
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![Django](https://img.shields.io/badge/Django-4.2-green.svg)](https://djangoproject.com)
@@ -13,7 +13,8 @@
 
 Frontier LLMs (GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro) bill based on total input and output token consumption. Production prompts frequently contain verbose syntax, pleasantries, hedging, and conversational boilerplate that consume tokens without contributing semantic or execution value.
 
-**SIR Gateway** intercepts raw prompts and compiles them into a structured, dense **Semantic Intermediate Representation (SIR)** in standard YAML/JSON. This drastically cuts token consumption, reduces inference latency, and saves cloud API operational costs while preserving 100% of intent and functional constraints.
+**ContextFlow** intercepts raw prompts and compiles them into a structured, dense **Semantic Intermediate Representation (SIR)** in standard YAML/JSON. This drastically cuts token consumption, reduces inference latency, and saves cloud API operational costs while preserving 100% of intent and functional constraints.
+
 
 ---
 
@@ -124,8 +125,9 @@ npm run dev
 ## Project Structure
 
 ```text
-semantic-sir-gateway/
+contextflow/
 ├── backend/
+
 │   ├── manage.py
 │   ├── requirements.txt
 │   ├── .env.example
