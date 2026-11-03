@@ -77,6 +77,35 @@ execution_hints:
 
 ### 1. Backend Setup (Django REST API)
 
+## Quickstart with Docker (Recommended)
+
+Run the entire ContextFlow stack (Backend + Frontend + Nginx proxy + Persistent SQLite DB) in a single command:
+
+```bash
+# 1. Clone repository & configure environment variables (optional)
+cp .env.example .env
+# Edit .env with your free GEMINI_API_KEY or GROQ_API_KEY (offline fallback works out-of-the-box if omitted)
+
+# 2. Build and start containers with Docker Compose
+docker compose up -d --build
+
+# 3. Access ContextFlow
+# Frontend UI: http://localhost:5173
+# Backend API & Healthcheck: http://localhost:8000/api/health/
+# Drop-In OpenAI Proxy Base URL: http://localhost:8000/v1
+```
+
+To stop ContextFlow:
+```bash
+docker compose down
+```
+
+---
+
+## Manual Local Setup (Without Docker)
+
+### 1. Backend Setup (Django + Python 3.10+)
+
 ```bash
 # Navigate to backend
 cd backend
@@ -116,6 +145,8 @@ npm run dev
 |---|---|---|
 | `POST` | `/api/compress/` | Compiles raw prompt to SIR YAML, evaluates fidelity, and calculates cost savings. |
 | `POST` | `/api/execute/` | Dispatches compiled SIR to downstream frontier LLM and returns response with latency. |
+| `POST` | `/api/v1/chat/completions/` | OpenAI-compatible drop-in proxy with BYOK and prompt compression. |
+| `GET` | `/api/v1/models` | OpenAI-compatible model discovery list for tools (Cursor, Continue, Claude Desktop). |
 | `GET` | `/api/history/` | Returns last 50 compression sessions and aggregated financial savings. |
 | `GET` | `/api/pricing/` | Returns model pricing tiers ($/1M tokens). |
 | `GET` | `/api/health/` | Returns backend availability and configured compiler engines. |
@@ -126,22 +157,26 @@ npm run dev
 
 ```text
 contextflow/
+├── docker-compose.yml       # Production orchestration for backend + frontend
+├── .env.example             # Global environment keys and configuration
 ├── backend/
-
+│   ├── Dockerfile           # Python 3.11-slim + pre-cached MiniLM embedding model
+│   ├── entrypoint.sh        # Auto-migration + Gunicorn production server
 │   ├── manage.py
 │   ├── requirements.txt
-│   ├── .env.example
 │   ├── config/              # Django settings, URLs, WSGI, ASGI
 │   └── api/                 # Django App
 │       ├── models.py        # CompressionSession, CostLog (auto-prune <= 500)
 │       ├── serializers.py   # DRF request & model serializers
-│       ├── views.py         # REST endpoints (compress, execute, history, pricing)
+│       ├── views.py         # REST endpoints & OpenAI Drop-In Proxy
 │       ├── urls.py          # API routing
 │       └── services/
 │           ├── compressor.py    # SIR compiler (Gemini/Groq/Ollama/Offline)
 │           ├── fidelity.py      # MiniLM cosine similarity gatekeeper
 │           └── cost_tracker.py  # Pricing matrix & financial projection engine
 ├── frontend/
+│   ├── Dockerfile           # Multi-stage build (Node 20 + Nginx Alpine)
+│   ├── nginx.conf           # SPA routing & reverse proxy for /api/ and /v1/
 │   ├── package.json
 │   ├── vite.config.js
 │   ├── tailwind.config.js
@@ -151,17 +186,8 @@ contextflow/
 │       ├── App.jsx
 │       ├── index.css
 │       ├── services/api.js      # Axios client
-│       └── components/
-│           ├── Header.jsx       # Navigation & model selection
-│           ├── MetricCards.jsx  # KPI metrics (tokens, $, fidelity, latency)
-│           ├── PromptEditor.jsx # Raw prompt editor with presets
-│           ├── SIRViewer.jsx    # Syntax-highlighted SIR YAML viewer
-│           ├── ExecutePanel.jsx # Downstream execution output & latency
-│           ├── ScaleSimulator.jsx # Enterprise financial slider
-│           └── HistoryChart.jsx # Recharts token reduction analytics
+│       └── components/          # UI components
 └── README.md
-```
-
 ---
 
 ## Low-Spec Hardware Optimization
@@ -169,3 +195,4 @@ contextflow/
 - **Embeddings**: Uses `all-MiniLM-L6-v2` loaded lazily in CPU memory (~80MB footprint).
 - **Zero GPU Requirement**: Cloud zero-cost tiers (Gemini 1.5 Flash / Groq) handle fast inference off-device.
 - **Database**: Zero-configuration SQLite with automatic FIFO pruning after 500 rows.
+

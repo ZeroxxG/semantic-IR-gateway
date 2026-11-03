@@ -117,10 +117,12 @@ def _clean_yaml_output(raw_text: str) -> str:
 
 def get_api_keys():
     """Retrieve keys freshly from environment."""
-    load_dotenv(ENV_PATH, override=True)
+    if ENV_PATH.exists():
+        load_dotenv(ENV_PATH, override=False)
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip().strip('\'"')
     groq_key = os.getenv("GROQ_API_KEY", "").strip().strip('\'"')
     return gemini_key, groq_key
+
 
 
 # Verified active models for Groq API
